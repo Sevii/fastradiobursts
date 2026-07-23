@@ -22,7 +22,7 @@ products live on popos under `~/frb_catalog2/` (Tier A source) and
 | 7 Eligibility/exclusion | 🟢 done | `engine.py` + `eligibility_config.yaml` + `exclusion_reason_dictionary.yaml` → `eligibility_table.parquet`. 10 unit tests. 4236 eligible / 298 provisional / **2 excluded** / 0 failures. Invariant: all 4536 have a status. |
 | 8 QC | 🟢 done | `qc/checks.py`+`run_qc.py`+`report.py`. **4530/4532 pass**; 2 noise-failures → **E014** (resolved), manual-review queue **empty**. Determinism re-run **25/25**. `catalog_qc_summary.html` + `qc_per_product.parquet`. 8 tests. Final eligibility: 3874 eligible / 658 provisional / **4 excluded**. |
 | 9 Benchmark | 🟢 done | `bench/benchmark.py`+`make_reports.py` → `archive_storage_benchmark.md` + `preprocessing_throughput_report.md` + `bench_results.json`. Measured: compression 0.71, peak 987 MB/worker, scaling to 5.4 obs/s @16w, ~14 min full catalog, ~193 GB working set. No storage purchase needed. |
-| 10 Report | ⬜ not started | |
+| 10 Report | 🟢 done | `report/build_report.py` → `WP0_data_audit_report.md` (all 6 sections + deliverable checksums + regen commands). `docs/standardized_data_schema.md` (deliverable #7). **Exit gate 14/15 PASS, 1 PENDING** (human two-analyst sign-off). All 15 deliverables present. |
 
 ## Key decoded facts
 - `.h5` = Catalog 2 Stokes-I dynamic spectra. `data` shape `(16384 freq, num_time)`,
