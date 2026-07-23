@@ -21,7 +21,7 @@ products live on popos under `~/frb_catalog2/` (Tier A source) and
 | 6 Standardized preprocessing | 🟢 done | `preprocess/standardize.py` + `preprocessing_config.yaml` → Tier B `.h5` (standardized, orig+project masks, baseline, per-channel noise, off-pulse, provenance). 8 tests. **Determinism verified on real data** (content + file sha256 identical on re-run). Candidate quarantine enforced. Full batch → `tier_b_manifest.parquet`. |
 | 7 Eligibility/exclusion | 🟢 done | `engine.py` + `eligibility_config.yaml` + `exclusion_reason_dictionary.yaml` → `eligibility_table.parquet`. 10 unit tests. 4236 eligible / 298 provisional / **2 excluded** / 0 failures. Invariant: all 4536 have a status. |
 | 8 QC | 🟢 done | `qc/checks.py`+`run_qc.py`+`report.py`. **4530/4532 pass**; 2 noise-failures → **E014** (resolved), manual-review queue **empty**. Determinism re-run **25/25**. `catalog_qc_summary.html` + `qc_per_product.parquet`. 8 tests. Final eligibility: 3874 eligible / 658 provisional / **4 excluded**. |
-| 9 Benchmark | ⬜ not started | (checksum: 501 files/s; manifest read ~full 56GB) |
+| 9 Benchmark | 🟢 done | `bench/benchmark.py`+`make_reports.py` → `archive_storage_benchmark.md` + `preprocessing_throughput_report.md` + `bench_results.json`. Measured: compression 0.71, peak 987 MB/worker, scaling to 5.4 obs/s @16w, ~14 min full catalog, ~193 GB working set. No storage purchase needed. |
 | 10 Report | ⬜ not started | |
 
 ## Key decoded facts

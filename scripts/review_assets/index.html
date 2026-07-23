@@ -1,0 +1,68 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FRB Catalog 2 — Visual Review</title>
+<link rel="stylesheet" href="style.css">
+<div class="wrap">
+  <header>
+    <h1>CHIME/FRB Catalog 2 — Visual Review</h1>
+    <div class="sub" id="subtitle">loading…</div>
+  </header>
+
+  <div class="kpis" id="kpis"></div>
+  <div class="chips" id="statusChips"></div>
+
+  <div class="filters" id="filters">
+    <div class="field">
+      <label>Search TNS</label>
+      <input id="fSearch" type="search" placeholder="FRB2019…" autocomplete="off">
+    </div>
+    <div class="field">
+      <label>Repeater</label>
+      <select id="fRepeater"><option value="">any</option><option value="1">repeater</option><option value="0">one-off</option></select>
+    </div>
+    <div class="field">
+      <label>Morphology</label>
+      <select id="fMorph"><option value="">any</option></select>
+    </div>
+    <div class="field">
+      <label>Exclusion reason</label>
+      <select id="fReason"><option value="">any</option></select>
+    </div>
+    <div class="field">
+      <label>DM (pc cm⁻³)</label>
+      <div class="range"><input id="fDmMin" type="number" placeholder="min"><span>–</span><input id="fDmMax" type="number" placeholder="max"></div>
+    </div>
+    <div class="field">
+      <label>S/N</label>
+      <div class="range"><input id="fSnrMin" type="number" placeholder="min"><span>–</span><input id="fSnrMax" type="number" placeholder="max"></div>
+    </div>
+    <div class="field">
+      <label>&nbsp;</label>
+      <button class="btn" id="fReset">Reset filters</button>
+    </div>
+  </div>
+
+  <div class="charts" id="charts"></div>
+
+  <div class="tablewrap">
+    <div class="tabletop">
+      <span id="tableCount">—</span>
+      <div class="pager">
+        <button class="btn" id="prev">‹ Prev</button>
+        <span id="pageInfo">—</span>
+        <button class="btn" id="next">Next ›</button>
+      </div>
+    </div>
+    <div style="overflow:auto; max-height:70vh">
+      <table id="tbl"><thead></thead><tbody></tbody></table>
+    </div>
+  </div>
+</div>
+
+<div class="drawer-bg" id="drawerBg"></div>
+<aside class="drawer" id="drawer" aria-hidden="true">
+  <button class="x" id="drawerClose" aria-label="close">×</button>
+  <div id="drawerBody"><div class="loading">select a burst</div></div>
+</aside>
+
+<script src="app.js"></script>
