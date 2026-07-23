@@ -90,6 +90,14 @@ def test_heavily_masked_is_provisional():
     assert "heavily_masked" in d["secondary_reasons"]
 
 
+def test_catalog_flags_are_provisional_not_excluded():
+    d = classify(base(catalog_excluded_flag=1), CFG, DCT)
+    assert d["status"] == "provisionally_eligible"
+    assert "catalog_excluded" in d["secondary_reasons"]
+    d2 = classify(base(catalog_sidelobe_flag=1), CFG, DCT)
+    assert "catalog_sidelobe" in d2["secondary_reasons"]
+
+
 def test_every_row_gets_a_status():
     # fuzz a range of inputs; classify must always return a known status
     ok = {"eligible", "provisionally_eligible", "excluded",

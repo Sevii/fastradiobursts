@@ -13,9 +13,9 @@ products live on popos under `~/frb_catalog2/` (Tier A source) and
 
 | Task | Status | Artifact |
 |---|---|---|
-| 1 Source inventory | 🟡 partial | `.h5` set inventoried; see gaps below |
-| 2 Immutable Tier A | 🟢 baseline done | `raw_archive_manifest_h5.parquet` + `.sha256` (4536 files, 0 err, 0 dup). Physical read-only lock DEFERRED until download completes. |
-| 3 Master manifest | 🟢 done (h5) | `observation_manifest.parquet` (4536×69) |
+| 1 Source inventory | 🟢 done | `data_source_inventory.parquet` — 5 products, 22755 files, 64.3 GB (download complete). 3 events lack an `.h5` (documented). |
+| 2 Immutable Tier A | 🟢 done | `raw_archive_manifest.parquet` + `.sha256` (**22755 files, 64.3 GB, 0 err**). Tier A **sealed read-only** (`chmod -R a-w`). |
+| 3 Master manifest | 🟢 done | `observation_manifest.parquet` (4536×**90**), enriched with catalog table (S/N, DM, morphology, flags). `catalog_metadata_normalized.parquet` (4539 events, deliverable #3). |
 | 4 Schema validation | 🟢 done | `contract.py` + 16-test pytest suite (all pass) + `validate_catalog.py` → `schema_validation.parquet` (**4536/4536 PASS**, 0 errors). Docs updated. |
 | 5 Reference set | ⬜ not started | |
 | 6 Standardized preprocessing | ⬜ not started | |
@@ -49,22 +49,24 @@ products live on popos under `~/frb_catalog2/` (Tier A source) and
 ## Eligibility results (Task 7, config_hash 44c5fb1f624f4ff3)
 Preregistered thresholds: usable BW ≥100 MHz, time coverage ≥32 bins, off-pulse ≥16 bins,
 soft masked-pixel flag >0.50. Set from band/cadence physics, independent of candidates.
-- **eligible: 4236 | provisionally_eligible: 298 | excluded: 2 | processing_failure: 0**
+- **eligible: 3876 | provisionally_eligible: 658 | excluded: 2 | processing_failure: 0**
 - 2 excluded: `FRB20201014B` (E006, off-pulse 14<16), `FRB20210421D` (E008, num_time 20<32).
-- provisional flags (files may carry >1): no_calibration 250, needs_offpulse_derivation 87,
-  heavily_masked 16.
+- provisional flags (files may carry >1): catalog_excluded 369, no_calibration 250,
+  needs_offpulse_derivation 87, catalog_sidelobe 30, heavily_masked 16.
 - Both candidates classified `eligible`, quarantined, did not influence thresholds.
 - Invariant holds: every one of 4536 rows has a status + machine-readable reason.
 - Decisions are deterministic given (manifest, schema, config); only the provenance
   timestamp varies run-to-run.
 
-## Open data gaps (Task 1)
-1. **Download stalled** inside `localizations/` (`.h5.part` incomplete). Dynamic-spectrum
-   `.h5` (4536) complete; plots + localizations partial. Other-tab job to resume/finish.
-2. **No Catalog 2 metadata table on disk** → manifest fields `catalog_snr`,
-   `morphology_label` null, flagged `pending_catalog_table=True`. Source: CADC VOSpace
-   DOI 25.0066 (may be elsewhere in the tree, not yet fetched).
-3. **4536 vs. catalog 4539** — 3-burst discrepancy to reconcile once the table exists.
+## Data gaps (Task 1) — RESOLVED
+1. ✅ Download complete (22755/22755, 0 `.part`). All products present.
+2. ✅ Catalog table found: `table/chimefrbcat2.{csv,fits,json,npy}` (4539 events, 60 cols).
+   Manifest enriched; `pending_catalog_table=False`.
+3. ✅ 4536 vs 4539 = **3 events with no dynamic spectrum**: FRB20190415C, FRB20190422B,
+   FRB20190517D (in catalog, no `.h5`). All 4536 `.h5` events are in the catalog.
+- Note: catalog marks **369** of our events `excluded_flag=1` + **30** `sidelobe_flag=1` →
+  retained but surfaced as provisional soft flags (own eligibility decision, non-destructive).
+- Not yet used: `localizations/`, `exposure/` (available for later WPs).
 
 ## Next steps (proposed order)
 1. Formal Task 4 pytest schema suite (`tests/`) — encode required/optional + tolerances.

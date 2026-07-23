@@ -98,6 +98,11 @@ def classify(row, cfg, dct):
     mp = row.get("orig_masked_pixel_frac")
     if mp is not None and mp > e["soft_masked_pixel_frac"]:
         soft.append("heavily_masked")
+    # catalog's own quality flags: recorded, kept in analysis, but marked
+    if row.get("catalog_excluded_flag") == 1:
+        soft.append("catalog_excluded")
+    if row.get("catalog_sidelobe_flag") == 1:
+        soft.append("catalog_sidelobe")
 
     if soft:
         return dict(status="provisionally_eligible", primary_reason=None,

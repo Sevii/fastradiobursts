@@ -42,3 +42,5 @@ soft_flags:
   no_calibration: "normalized-only; not flux-calibratable to Jy"
   needs_offpulse_derivation: "no pulse_emission_region attr; on-pulse to be derived at Task 6"
   heavily_masked: "masked-pixel fraction above soft threshold"
+  catalog_excluded: "CHIME catalog excluded_flag=1; retained but marked (own eligibility decision)"
+  catalog_sidelobe: "CHIME catalog sidelobe_flag=1; far-sidelobe detection, poor localization/flux"
