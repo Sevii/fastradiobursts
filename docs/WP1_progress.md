@@ -18,8 +18,8 @@ under `src/echo_frb/repro/`, synced to popos and run via its `.venv`.
 | W1.1 Input equivalence + 340-set | 🟢 done | Bundled repo `.h5` **byte-identical** to our Tier A (same sha256) → CANFAR release == Tier A, no re-download. 340-set = full `chimefrbcat2_first_duplicates.npy` (340 rows, sub_num≥1); **all 340 in Tier A**, both candidates present → `microfrb_input_manifest.parquet`. |
 | W1.2 Literal run (G_3) | 🟢 done (G_3) | Ran `SearchLensedFRB.py` **unmodified** N=340 on Tier A via pinned env. **EXACT reproduction of committed G_3**: 11==11 candidates, 0 field mismatches, identical spike delays → `literal_vs_committed_diff.md`. SG_20/SG_100 variants deferred to W1.5 (smoothing axis). |
 | W1.3 Blind clean-room | 🟢 done | Built `src/echo_frb/repro/cleanroom/` (lightcurve/acf/peaks/drift_ks/hardness/pipeline/run + config + README) blind from `PAPER_SPEC.md`. `tests/test_cleanroom.py` **6/6 pass**. Ran 340 on **our Tier B** → `cleanroom_run/cleanroom_scores.parquet` (config_hash b1c11b35, determinism re-verified). **Independent result: 1 candidate = FRB20190131D** (Δt=8.847 ms, pair [76,85], K-S D=0.033<D_upp=0.083 achromatic). **FRB20211115A NOT flagged (0 ACF spikes).** 6 drift-rejected, 1 PSNR-rejected. |
-| W1.4 Selection chain | ⚪ not started | Per-stage disposition, both tracks. |
-| W1.5 Sensitivity matrix | ⚪ not started | One axis at a time. |
+| W1.4 Selection chain | 🟢 done | `src/echo_frb/repro/selection/` (funnel_literal/reconcile/factorial) + `tests/test_selection.py` **9/9**. Both funnels → `candidate_selection_chain.parquet`; reconciliation → `reconciliation_matrix.*`; LC×ACF factorial → `decomposition_*.parquet`. Findings: `docs/WP1_W1.4_findings.md`. Added `terminal_stage` instrumentation to clean-room (determinism guard: is_candidate + content_sha256 **identical** to committed run). |
+| W1.5 Sensitivity matrix | 🟢 done | `src/echo_frb/repro/sensitivity/` + `tests/test_sensitivity.py` **5/5**. **Smoothing parameterized (NO comment-toggle).** 17 literal configs + 3 clean-room → `sensitivity_matrix.parquet` (FRB×20), `candidate_stability.parquet`, findings `docs/WP1_W1.5_findings.md`. **All 3 committed configs reproduced EXACTLY** (G_3=11/SG_20=16/SG_100=12). Candidate count swings **22→3** across spike-threshold kσ∈[2,4]. **Only FRB20190131D robust across all 20 configs**; FRB20211115A fragile (drops SG_100/kσ4, 0 clean-room spikes at any threshold). |
 | W1.6 Repro matrix + note | ⚪ not started | exact/approx/not + traced causes. |
 | W1.7 Tests + env locks + gate | ⚪ not started | determinism + golden + invariant; gate memo. |
 
@@ -52,6 +52,18 @@ under `src/echo_frb/repro/`, synced to popos and run via its `.venv`.
   reproduce exactly from public data + their code.
 - Their `read_frb_dynamic_spectrum` auto-detects the 2D `data` dataset (CHIME layout) — no code
   change needed to read Tier A. Script runs at import (no `__main__` guard); `MPLBACKEND=Agg` headless.
+
+## W1.4 result — reconciliation + causal decomposition (see docs/WP1_W1.4_findings.md)
+- **Funnels:** literal 340→105 spikes→82 matched→**11 candidates** (=committed G_3 exactly);
+  clean-room 340→**8** spikes→**1 candidate**. Tracks agree on terminal stage for 235/340.
+- **Divergence is at the SPIKE stage** (102 of 105 divergences; only 3 at CUTS). All 10 literal-only
+  candidates drop at NO_SPIKE in the clean-room — the copy/drift test is never where they disagree.
+- **LC×ACF factorial attribution** (11 flagged-in-either): 1 AGREE (FRB20190131D), **8 ALGORITHM**
+  (authors' detector finds the spike even on OUR Tier B light curve; our stricter 3σ detector doesn't),
+  **2 MIXED** (FRB20211115A, FRB20220225C — preprocessing ALSO suppresses the spike).
+- **Conclusion:** divergence dominated by the **spike-detection algorithm/threshold** (paper's spike
+  criterion is under-determined), with FRB20211115A additionally preprocessing-sensitive. FRB20190131D
+  robust in all 4 cells. NOT a claim that clean-room is "right" — it quantifies fragility. → W1.6.
 
 ## W1.3 finding — literal vs blind clean-room (preliminary; full reconciliation = W1.4)
 - **FRB20190131D reproduces robustly**: flagged by BOTH the literal run (Tier A + their code) and the

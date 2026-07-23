@@ -29,7 +29,7 @@ OUT_COLUMNS = [
     "config_hash", "content_sha256", "code_commit",
     # diagnostics (extra, not required by the neutral schema)
     "n_spikes", "n_matched", "best_secondary_psnr", "ks_d_max", "ks_d_upp",
-    "n_usable_channels", "note",
+    "n_usable_channels", "note", "terminal_stage",
 ]
 
 

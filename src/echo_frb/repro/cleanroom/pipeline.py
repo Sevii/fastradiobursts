@@ -62,6 +62,9 @@ def _empty_result(frb_name, note):
         ks_d_upp=float("nan"),
         n_usable_channels=0,
         note=note,
+        # additive diagnostic (W1.4): terminal selection-funnel stage. Does NOT
+        # enter content_sha256 (see _canonical) — determinism is preserved.
+        terminal_stage="EXCLUDED",
     )
 
 
@@ -164,6 +167,23 @@ def run_frb(tb, frb_name, cfg):
         best = None
         is_candidate = False
 
+    # --- additive diagnostic (W1.4): terminal funnel stage ------------------
+    # Records where this FRB exits the canonical funnel. Not part of the verdict
+    # and excluded from content_sha256, so it cannot change determinism.
+    if is_candidate:
+        terminal_stage = "CANDIDATE"
+    elif len(spikes) == 0:
+        terminal_stage = "NO_SPIKE"
+    elif len(matched_pairs) == 0:
+        terminal_stage = "NO_MATCH"
+    elif cuts_pass:
+        # some pair passed the selection cuts but was rejected downstream
+        terminal_stage = "DRIFT" if any(r["has_drift"] for r in cuts_pass) \
+            else "HARDNESS"
+    else:
+        # matched pairs existed but none passed ordering / PSNR>10 / max-SNR cuts
+        terminal_stage = "CUTS"
+
     res = dict(
         frb_name=frb_name,
         spike_delays_ms=[float(x) for x in spike_delays_ms],
@@ -183,6 +203,7 @@ def run_frb(tb, frb_name, cfg):
                   else float("nan")),
         n_usable_channels=int(meta["n_usable_channels"]),
         note="ok",
+        terminal_stage=terminal_stage,
     )
     res["_lightcurve"] = I
     return res
