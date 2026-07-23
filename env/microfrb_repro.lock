@@ -1,19 +1,41 @@
+# Environment for the WP1 LITERAL reproduction track (venv_microfrb on popos).
+# Python 3.10.12. Reconstructed by hand — the MICRO-FRB repo ships no
+# requirements.txt / pinned versions (a reproducibility hazard, logged in
+# docs/WP1_gate_memo.md).
+#
+# reproduction core  — required to RUN the authors' pipeline (SearchLensedFRB.py
+#   + modules). numpy/scipy/matplotlib/h5py drive the analysis; colossus +
+#   statsmodels are UNDECLARED deps their modules/__init__ imports eagerly.
+#   These pins reproduce the committed G_3/SG_20/SG_100 results exactly.
+# analysis harness   — pyarrow + pyyaml: NOT needed by the authors' code; used by
+#   our W1.4/W1.5 sweep/aggregate harness (parquet + yaml). Additive only.
+#
+# Clean-room + selection + matrix tracks run in the project .venv
+# (env/requirements.lock). See env/README.md.
+
+# --- reproduction core (pinned; do not bump) ---
 colossus==1.4.0
+h5py==3.16.0
+matplotlib==3.10.9
+numpy==2.2.6
+pandas==2.3.3
+scipy==1.15.3
+statsmodels==0.14.6
+
+# --- analysis harness (additive) ---
+pyarrow==25.0.0
+pyyaml==6.0.3
+
+# --- transitive ---
 contourpy==1.3.2
 cycler==0.12.1
 fonttools==4.63.0
-h5py==3.16.0
 kiwisolver==1.5.0
-matplotlib==3.10.9
-numpy==2.2.6
 packaging==26.2
-pandas==2.3.3
 patsy==1.0.2
 pillow==12.3.0
 pyparsing==3.3.2
 python-dateutil==2.9.0.post0
 pytz==2026.2
-scipy==1.15.3
 six==1.17.0
-statsmodels==0.14.6
 tzdata==2026.3
