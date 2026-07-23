@@ -19,7 +19,7 @@ products live on popos under `~/frb_catalog2/` (Tier A source) and
 | 4 Schema validation | 🟢 done | `contract.py` + 16-test pytest suite (all pass) + `validate_catalog.py` → `schema_validation.parquet` (**4536/4536 PASS**, 0 errors). Docs updated. |
 | 5 Reference set | ⬜ not started | |
 | 6 Standardized preprocessing | ⬜ not started | |
-| 7 Eligibility/exclusion | ⬜ not started | (preview computed — see below) |
+| 7 Eligibility/exclusion | 🟢 done | `engine.py` + `eligibility_config.yaml` + `exclusion_reason_dictionary.yaml` → `eligibility_table.parquet`. 10 unit tests. 4236 eligible / 298 provisional / **2 excluded** / 0 failures. Invariant: all 4536 have a status. |
 | 8 QC | ⬜ not started | |
 | 9 Benchmark | ⬜ not started | (checksum: 501 files/s; manifest read ~full 56GB) |
 | 10 Report | ⬜ not started | |
@@ -46,11 +46,17 @@ products live on popos under `~/frb_catalog2/` (Tier A source) and
   `time_downsample_factor` recorded per file; res_time cross-checked vs coord spacing.
 - Contract violation codes map to Task 7 E-codes (E003/E004/E005/E011/E012/E013/E015).
 
-## Eligibility preview (rough, pre-Task-7)
-- `num_time` < 40 (little off-pulse): **3**
-- total off-pulse bins < 20: **3**
-- usable bandwidth < 100 MHz: 0
-- masked-channel frac > 0.5: **39**
+## Eligibility results (Task 7, config_hash 44c5fb1f624f4ff3)
+Preregistered thresholds: usable BW ≥100 MHz, time coverage ≥32 bins, off-pulse ≥16 bins,
+soft masked-pixel flag >0.50. Set from band/cadence physics, independent of candidates.
+- **eligible: 4236 | provisionally_eligible: 298 | excluded: 2 | processing_failure: 0**
+- 2 excluded: `FRB20201014B` (E006, off-pulse 14<16), `FRB20210421D` (E008, num_time 20<32).
+- provisional flags (files may carry >1): no_calibration 250, needs_offpulse_derivation 87,
+  heavily_masked 16.
+- Both candidates classified `eligible`, quarantined, did not influence thresholds.
+- Invariant holds: every one of 4536 rows has a status + machine-readable reason.
+- Decisions are deterministic given (manifest, schema, config); only the provenance
+  timestamp varies run-to-run.
 
 ## Open data gaps (Task 1)
 1. **Download stalled** inside `localizations/` (`.h5.part` incomplete). Dynamic-spectrum

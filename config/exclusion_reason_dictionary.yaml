@@ -1,0 +1,104 @@
+# Deliverable #5 — exclusion reason dictionary.
+# Authoritative machine-readable meaning of every primary/secondary reason code.
+# `stage` = where the code is raised; `reversible` = whether re-download / new
+# products / reprocessing could plausibly flip the decision.
+
+E001_UNREADABLE_FILE:
+  description: File could not be opened at all.
+  stage: ingest
+  status: processing_failure
+  reversible: true        # a re-download may fix it
+
+E002_CHECKSUM_FAILURE:
+  description: SHA-256 does not match the recorded raw-archive manifest.
+  stage: ingest
+  status: processing_failure
+  reversible: true
+
+E003_MISSING_TIME_AXIS:
+  description: index_map/times absent.
+  stage: schema
+  status: excluded
+  reversible: false
+
+E004_MISSING_FREQUENCY_AXIS:
+  description: index_map/freqs absent.
+  stage: schema
+  status: excluded
+  reversible: false
+
+E005_AXIS_DIMENSION_MISMATCH:
+  description: Coordinate array length disagrees with the data array axis.
+  stage: schema
+  status: excluded
+  reversible: false
+
+E006_INSUFFICIENT_OFF_PULSE:
+  description: Too few off-pulse time bins in the saved window to estimate
+    per-channel baseline/noise locally.
+  stage: eligibility
+  status: excluded
+  reversible: false
+
+E007_INSUFFICIENT_USABLE_BANDWIDTH:
+  description: Unmasked bandwidth below the preregistered minimum.
+  stage: eligibility
+  status: excluded
+  reversible: false
+
+E008_INSUFFICIENT_TIME_COVERAGE:
+  description: Too few time bins to test at least one allowed delay.
+  stage: eligibility
+  status: excluded
+  reversible: false
+
+E009_UNRECOVERABLE_SATURATION:
+  description: Irrecoverable detector saturation in the candidate region.
+  stage: eligibility
+  status: excluded
+  reversible: false
+  note: Not currently assessed — no saturation indicator in the product.
+
+E010_UNRECOVERABLE_TRUNCATION:
+  description: Data truncated at the window edge beyond recovery.
+  stage: eligibility
+  status: excluded
+  reversible: false
+  note: Not currently raised — coord/array lengths verified consistent (Task 4).
+
+E011_CORRUPT_ARRAY:
+  description: Array unreadable or contains unexpected non-finite values.
+  stage: schema
+  status: processing_failure
+  reversible: true
+
+E012_MASK_UNINTERPRETABLE:
+  description: Mask dataset missing or of incompatible shape.
+  stage: schema
+  status: excluded
+  reversible: false
+
+E013_METADATA_MISMATCH:
+  description: Metadata identifiers/units/cadence inconsistent with the file
+    contents or the catalog.
+  stage: schema
+  status: excluded
+  reversible: false
+
+E014_NOISE_ESTIMATION_FAILURE:
+  description: Per-channel noise estimate could not be formed (raised at Task 6).
+  stage: preprocess
+  status: excluded
+  reversible: true
+
+E015_UNSUPPORTED_FORMAT:
+  description: File is not a supported CHIME/FRB Catalog 2 HDF5 dynamic spectrum.
+  stage: schema
+  status: processing_failure
+  reversible: false
+
+E099_OTHER_REQUIRES_REVIEW:
+  description: Anomaly not covered by a specific code; routed to manual review.
+  stage: any
+  status: pending_manual_review
+  reversible: true

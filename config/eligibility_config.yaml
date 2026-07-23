@@ -1,0 +1,44 @@
+# Task 7 — eligibility thresholds (PREREGISTERED).
+#
+# These thresholds are set from physical/instrumental reasoning about the band
+# (400-800 MHz, 400 MHz wide), the native cadence (0.983 ms), and the minimum
+# information needed to test a delayed-copy hypothesis. They are chosen
+# INDEPENDENTLY of the two quarantined candidates (FRB20190131D, FRB20211115A),
+# whose outcomes must not influence any threshold (datacleaninginstructions §2).
+#
+# Changing any value here changes config_hash and must be recorded as a new
+# analysis version.
+
+version: 1
+
+eligibility:
+  # E007 — enough unmasked bandwidth to test an achromatic copy and estimate
+  # per-channel spectral structure. 100 MHz = 25% of the 400 MHz band.
+  min_usable_bandwidth_mhz: 100.0
+
+  # E008 — enough time coverage to test at least one delay clearly above the
+  # native cadence, with off-pulse room on both sides. 32 bins ~= 31 ms window.
+  min_time_coverage_bins: 32
+
+  # E006 — enough off-pulse samples (outside the on-pulse region, inside the
+  # saved window) for a local per-channel baseline/noise estimate.
+  min_offpulse_bins: 16
+
+  # Soft quality concern (-> provisionally_eligible, not excluded): heavily
+  # masked spectra remain usable but are flagged for the reference set / QC.
+  soft_masked_pixel_frac: 0.50
+
+# Capabilities not assessable from the current products (documented limitation,
+# no exclusions raised): the Catalog 2 dynamic spectra carry no explicit
+# instrument saturation flag, and coordinate/array lengths were already verified
+# consistent in Task 4 (no truncation). Revisit if a saturation indicator or the
+# metadata table becomes available.
+not_assessed:
+  E009_UNRECOVERABLE_SATURATION: "no saturation indicator in the product"
+  E010_UNRECOVERABLE_TRUNCATION: "coord/array lengths verified consistent (Task 4)"
+
+# Soft flags that downgrade eligible -> provisionally_eligible (not exclusions):
+soft_flags:
+  no_calibration: "normalized-only; not flux-calibratable to Jy"
+  needs_offpulse_derivation: "no pulse_emission_region attr; on-pulse to be derived at Task 6"
+  heavily_masked: "masked-pixel fraction above soft threshold"
