@@ -18,7 +18,7 @@ document (`standardized_data_schema.md`).
 | Channel width (`res_freq`) | 0.0244140625 MHz |
 | Band | 400.20752 – 800.18311 MHz |
 | Frequency ordering | **increasing** with channel index |
-| Time resolution (`res_time`) | ≈ 0.00098304 s (0.983 ms) — float-level wobble, compare with tolerance |
+| Time resolution (`res_time`) | native 0.00098304 s (0.983 ms) **× 2ᵏ** — see cadence note |
 | Dedispersion | already applied (`is_dedispersed=True`) at `dm_incoherent`, ref `ref_freq` |
 | Intensity units | dimensionless (mean-subtracted, per-channel mean-normalized) |
 
@@ -35,7 +35,23 @@ Physical flux: `data_jy[f,t] = calibration.flux_conversion_factor[f] * data[f,t]
 - `unwindowed_num_time` — full timeseries length (7k – 33k+).
 - `dm_incoherent`, `center_time`, `start_time_unix_nano`, `beam_number`, `event_id`.
 - `pulse_emission_region` — `(n_components, 2)` int array: on-pulse time-bin span(s).
+  **Absent in ~87 "un-modeled" bursts** (see optional datasets) → off-pulse must be
+  derived another way at Task 7. Treated as optional, not a schema error.
 - `repeater_name` — empty string for apparent non-repeaters, else source name.
+
+### Time cadence (validated over all 4536 files)
+
+`res_time` is native × 2ᵏ (time-downsampled products), not a single constant:
+
+| res_time | factor | files |
+|---|---|---|
+| 983 µs | ×1 | 4496 |
+| 1966 µs | ×2 | 34 |
+| 3932 µs | ×4 | 6 |
+
+Schema rule: `res_time` must be `native × 2ᵏ` **and** equal the actual
+`index_map/times` spacing (internal-consistency check catches corruption).
+`time_downsample_factor` (=2ᵏ) is recorded per file.
 
 ## Datasets
 
@@ -58,15 +74,19 @@ Physical flux: `data_jy[f,t] = calibration.flux_conversion_factor[f] * data[f,t]
 
 ### Optional (record presence/absence; do NOT fail)
 
-| Path | Notes |
-|---|---|
-| `model` | Best-fit burst model. **Missing in some files** (e.g. FRB20201125B). |
-| `calibration/flux_conversion_factor` | (16384,) float64, Jy. **Whole group missing in some files** (e.g. FRB20190907A) → burst not flux-calibratable, normalized-only. |
-| `calibration/spectrum` | (16384,) float64 |
-| `calibration/good_freq` | (16384,) bool |
+| Path | Notes | Missing in |
+|---|---|---|
+| `model` | Best-fit burst model. | 87 files ("un-modeled" class) |
+| `pulse_emission_region` (attr) | On-pulse time-bin span. | same 87 files |
+| `calibration/flux_conversion_factor` | (16384,) float64, Jy → not flux-calibratable, normalized-only. | 250 files |
+| `calibration/spectrum` | (16384,) float64 | 250 files |
+| `calibration/good_freq` | (16384,) bool | 250 files |
 
-Observed structural variants so far: (1) full schema; (2) missing `model`;
-(3) missing entire `calibration` group. Both incomplete examples were repeaters.
+Structural variants (validated over all 4536): full schema (4449); **87 "un-modeled"
+bursts** lack both `model` and `pulse_emission_region` (structurally valid — data,
+flag, coords, statistics all present); **250** lack the `calibration` group
+(normalized-only). Missing-calibration and un-modeled classes skew toward repeaters
+but are not exclusively so.
 
 ## Root attributes (per-burst metadata → manifest)
 

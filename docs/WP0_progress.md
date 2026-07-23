@@ -16,7 +16,7 @@ products live on popos under `~/frb_catalog2/` (Tier A source) and
 | 1 Source inventory | 🟡 partial | `.h5` set inventoried; see gaps below |
 | 2 Immutable Tier A | 🟢 baseline done | `raw_archive_manifest_h5.parquet` + `.sha256` (4536 files, 0 err, 0 dup). Physical read-only lock DEFERRED until download completes. |
 | 3 Master manifest | 🟢 done (h5) | `observation_manifest.parquet` (4536×69) |
-| 4 Schema validation | 🟡 core done | `docs/tier_a_input_schema.md`; coord/orientation/monotonicity checks pass all 4536. Formal `tests/` pytest suite: TODO |
+| 4 Schema validation | 🟢 done | `contract.py` + 16-test pytest suite (all pass) + `validate_catalog.py` → `schema_validation.parquet` (**4536/4536 PASS**, 0 errors). Docs updated. |
 | 5 Reference set | ⬜ not started | |
 | 6 Standardized preprocessing | ⬜ not started | |
 | 7 Eligibility/exclusion | ⬜ not started | (preview computed — see below) |
@@ -37,6 +37,14 @@ products live on popos under `~/frb_catalog2/` (Tier A source) and
 - `num_time`: 20 / 162 / 2604 (min/med/max). 981 repeaters.
 - orig masked-pixel frac: med 0.14, max 0.96. masked-channel frac: med 0.28, max 0.68.
 - usable bandwidth: all ≥126 MHz. NaN/Inf: none. All coord checks pass.
+
+## Schema diversity found by full-catalog validation (Task 4)
+- **87 "un-modeled" bursts** lack `model` + `pulse_emission_region` (structurally
+  valid; off-pulse must be derived without the attr at Task 7). → W_NO_MODEL / W_NO_PULSE_REGION.
+- **250** lack `calibration` group → normalized-only, no Jy. → W_NO_CALIBRATION.
+- **3 time cadences**: 983 µs ×4496, 1966 µs ×34, 3932 µs ×6 (native × 2ᵏ).
+  `time_downsample_factor` recorded per file; res_time cross-checked vs coord spacing.
+- Contract violation codes map to Task 7 E-codes (E003/E004/E005/E011/E012/E013/E015).
 
 ## Eligibility preview (rough, pre-Task-7)
 - `num_time` < 40 (little off-pulse): **3**
