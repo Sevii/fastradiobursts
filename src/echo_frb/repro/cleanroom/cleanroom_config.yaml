@@ -1,0 +1,67 @@
+# Clean-room microlensed-FRB detection pipeline — all thresholds.
+# Derived only from the paper (Zhou et al. 2026) + our own documented choices.
+# Config-hash convention: sha256(file_bytes)[:16].
+
+version: cleanroom-v1
+
+# ---- Light curve (Step 1) --------------------------------------------------
+lightcurve:
+  # noise weighting for the frequency-integrated intensity I(t).
+  # "invvar": inverse-variance (1/robust_std^2) weighted channel mean [CHOICE].
+  #   Channels are included only if project_mask & channel_usable & finite sigma.
+  weighting: invvar
+
+# ---- ACF + spike detection (Steps 2-4) -------------------------------------
+acf:
+  # Gaussian smoothing kernel sigma for the ACF baseline G(dt). Paper-fixed.
+  smoothing_sigma: 3.0
+  # Spike threshold in units of the local scatter sigma_dt. Paper-fixed.
+  spike_nsigma: 3.0
+  # Lag search window (our CHOICE where paper is silent):
+  #   min_lag_bins: exclude the trivial zero-lag core from both the spike search
+  #     and the sigma_dt scatter estimate (else the C(0)=1 peak inflates sigma).
+  #   max_lag_ms: cap the search at a physically-motivated max delay; component
+  #     separations of interest are at most tens of ms within one dynamic spectrum.
+  min_lag_bins: 2
+  max_lag_ms: 50.0
+
+# ---- Peaks + matching + selection cuts (Steps 5-6) -------------------------
+peaks:
+  # Peak detection on I(t): scipy.signal.find_peaks. A component is detected if
+  # its peak-S/N exceeds detect_snr (CHOICE, kept below the 10 secondary cut so
+  # genuine secondaries near threshold are not missed).
+  detect_snr: 5.0
+  # Minimum separation between detected peaks, in time bins (CHOICE).
+  min_separation_bins: 2
+  # Peak-lag matching tolerance. Paper-fixed.
+  match_tol_ms: 2.0
+  # Secondary (trailing) peak must exceed this peak-S/N. Paper-fixed.
+  secondary_psnr_min: 10.0
+  # Half-width (time bins) of the window used to integrate a component's flux and
+  # extract its per-component spectrum (CHOICE). Auto-shrunk so paired component
+  # windows never overlap: min(component_halfwidth_bins, floor(delay_bins/2)).
+  component_halfwidth_bins: 3
+
+# ---- K-S achromaticity / drift test (Step 7) -------------------------------
+ks:
+  # Rebin 16384 channels to this many for the per-component spectra. Paper-fixed.
+  n_f: 512
+  # Critical K-S statistic. Paper: D_crit = 1.36*sqrt(2/n_f) ~ 0.1 @ alpha=0.05.
+  # Computed from n_f at runtime; this is a documented fallback/expected value.
+  d_crit: 0.1
+  alpha: 0.05
+  # Bootstrap iterations for the noise-only null upper bound D_{n,upp}. Paper: ~1e3.
+  bootstrap_iters: 1000
+  # D_{n,upp} = this percentile of the bootstrap null D distribution (CHOICE:
+  # 99.73 ~ one-sided 3 sigma, matching the paper's "3-sigma upper bound").
+  upp_percentile: 99.73
+  # RNG seed for the bootstrap so the pipeline is fully deterministic (CHOICE).
+  bootstrap_seed: 20260722
+
+# ---- Hardness-ratio consistency cut (Step 8) -------------------------------
+hardness:
+  # Number of frequency bands [L, M, H]. Paper-fixed = 3.
+  n_bands: 3
+  # Require the two components' hardness ratios to agree within this many sigma.
+  # Paper: 1 sigma.
+  consistency_nsigma: 1.0

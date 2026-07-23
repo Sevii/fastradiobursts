@@ -1,6 +1,7 @@
 .venv/
 __pycache__/
 *.pyc
+.DS_Store
 # Data + generated products live on popos, never in git:
 data/
 *.h5

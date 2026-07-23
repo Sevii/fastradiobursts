@@ -17,7 +17,7 @@ under `src/echo_frb/repro/`, synced to popos and run via its `.venv`.
 | W1.0 Seal target + extract claims | 🟢 done | Repo cloned @ pinned `c4fbfca` (2026-05-18), **sealed read-only**, checksummed → `repro_target_manifest.parquet` (272 files, 0.15 GB, 0 err). Ground truth → `src/echo_frb/repro/target/authors_reported_values.yaml`. Env reconstructed + locked → `env/microfrb_repro.lock` (**found 2 UNDECLARED deps: `colossus`, `statsmodels`**). |
 | W1.1 Input equivalence + 340-set | 🟢 done | Bundled repo `.h5` **byte-identical** to our Tier A (same sha256) → CANFAR release == Tier A, no re-download. 340-set = full `chimefrbcat2_first_duplicates.npy` (340 rows, sub_num≥1); **all 340 in Tier A**, both candidates present → `microfrb_input_manifest.parquet`. |
 | W1.2 Literal run (G_3) | 🟢 done (G_3) | Ran `SearchLensedFRB.py` **unmodified** N=340 on Tier A via pinned env. **EXACT reproduction of committed G_3**: 11==11 candidates, 0 field mismatches, identical spike delays → `literal_vs_committed_diff.md`. SG_20/SG_100 variants deferred to W1.5 (smoothing axis). |
-| W1.3 Blind clean-room | ⚪ not started | Fresh blind implementer from paper only. |
+| W1.3 Blind clean-room | 🟢 done | Built `src/echo_frb/repro/cleanroom/` (lightcurve/acf/peaks/drift_ks/hardness/pipeline/run + config + README) blind from `PAPER_SPEC.md`. `tests/test_cleanroom.py` **6/6 pass**. Ran 340 on **our Tier B** → `cleanroom_run/cleanroom_scores.parquet` (config_hash b1c11b35, determinism re-verified). **Independent result: 1 candidate = FRB20190131D** (Δt=8.847 ms, pair [76,85], K-S D=0.033<D_upp=0.083 achromatic). **FRB20211115A NOT flagged (0 ACF spikes).** 6 drift-rejected, 1 PSNR-rejected. |
 | W1.4 Selection chain | ⚪ not started | Per-stage disposition, both tracks. |
 | W1.5 Sensitivity matrix | ⚪ not started | One axis at a time. |
 | W1.6 Repro matrix + note | ⚪ not started | exact/approx/not + traced causes. |
@@ -52,6 +52,18 @@ under `src/echo_frb/repro/`, synced to popos and run via its `.venv`.
   reproduce exactly from public data + their code.
 - Their `read_frb_dynamic_spectrum` auto-detects the 2D `data` dataset (CHIME layout) — no code
   change needed to read Tier A. Script runs at import (no `__main__` guard); `MPLBACKEND=Agg` headless.
+
+## W1.3 finding — literal vs blind clean-room (preliminary; full reconciliation = W1.4)
+- **FRB20190131D reproduces robustly**: flagged by BOTH the literal run (Tier A + their code) and the
+  blind clean-room (our Tier B + independent code), at Δt≈8.82/8.847 ms with the **same** matched peak
+  pair [76,85] — agreement across two independent implementations AND two preprocessing chains.
+- **FRB20211115A does NOT reproduce** in the clean-room: 0 significant ACF spikes on our Tier B →
+  never even forms a matched pair. Consistent with it also being **absent under the authors' own SG_100**
+  smoothing config (W1.0). Fragile / preprocessing-dependent from multiple independent angles.
+- **Selection stage diverges heavily**: clean-room's 8 matched-pair FRBs overlap the literal G_3 11
+  by only ONE (FRB20190131D). Divergence is dominated by preprocessing + peak/light-curve construction,
+  not the copy test itself. → W1.4 decomposes via a Tier A diagnostic variant.
+- Blindness held: implementer never read the target code/YAML/memory; processed all 340 uniformly.
 
 ## Environment (literal track)
 - Dedicated venv `~/frb_catalog2_prep/wp1_repro/venv_microfrb` (isolated from WP0 env).
