@@ -17,7 +17,7 @@ products live on popos under `~/frb_catalog2/` (Tier A source) and
 | 2 Immutable Tier A | 🟢 done | `raw_archive_manifest.parquet` + `.sha256` (**22755 files, 64.3 GB, 0 err**). Tier A **sealed read-only** (`chmod -R a-w`). |
 | 3 Master manifest | 🟢 done | `observation_manifest.parquet` (4536×**90**), enriched with catalog table (S/N, DM, morphology, flags). `catalog_metadata_normalized.parquet` (4539 events, deliverable #3). |
 | 4 Schema validation | 🟢 done | `contract.py` + 16-test pytest suite (all pass) + `validate_catalog.py` → `schema_validation.parquet` (**4536/4536 PASS**, 0 errors). Docs updated. |
-| 5 Reference set | ⬜ not started | |
+| 5 Reference set | 🟢 plots done | `select_reference.py` (39 events, all 18 conditions) + `make_plots.py` (9-panel QC PNGs). `reference_event_index.csv` + `reference_event_qc_plots/`. **Auto-check 0/39 flagged** (orientation, masks, coords, burst location, standardized==data−baseline verified). Human two-analyst sign-off pending (protocol doc). |
 | 6 Standardized preprocessing | 🟢 done | `preprocess/standardize.py` + `preprocessing_config.yaml` → Tier B `.h5` (standardized, orig+project masks, baseline, per-channel noise, off-pulse, provenance). 8 tests. **Determinism verified on real data** (content + file sha256 identical on re-run). Candidate quarantine enforced. Full batch → `tier_b_manifest.parquet`. |
 | 7 Eligibility/exclusion | 🟢 done | `engine.py` + `eligibility_config.yaml` + `exclusion_reason_dictionary.yaml` → `eligibility_table.parquet`. 10 unit tests. 4236 eligible / 298 provisional / **2 excluded** / 0 failures. Invariant: all 4536 have a status. |
 | 8 QC | ⬜ not started | |
