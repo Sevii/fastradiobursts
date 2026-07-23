@@ -1,0 +1,49 @@
+# Task 6 — standardized preprocessing (Tier A -> Tier B). FROZEN primary config.
+# Deterministic: outputs depend only on (Tier A file, this config, code commit).
+# Changing any value changes config_hash and defines a new analysis version.
+
+version: 1
+preprocessing_version: "wp0-preproc-v1"
+
+dedispersion:
+  # Tier A is already incoherently dedispersed at the catalog DM (dm_incoherent).
+  # We use it as-is. No per-event DM optimization during preparation.
+  method: catalog_dm
+  dm_perturbation_test: null      # robustness diagnostic only; NOT applied here
+
+offpulse:
+  # On-pulse from the catalog attr where present; otherwise derived uniformly from
+  # the frequency-integrated profile (the ~87 un-modeled bursts).
+  guard_bins: 5                   # exclude +/- guard bins around on-pulse
+  derive_threshold_mad: 5.0       # derived on-pulse: profile > median + k*MAD
+  min_offpulse_bins: 16           # below this -> noise-estimation failure (E014)
+
+baseline:
+  method: median                  # robust per-channel baseline from off-pulse only
+                                  # (additive offset removal; envelope preserved via
+                                  #  statistics.mean / calibration, never re-normalized)
+
+noise:
+  robust: mad                     # robust per-channel sigma = 1.4826 * MAD
+  conventional: std               # also store conventional std
+  min_samples: 16                 # channels with fewer off-pulse samples -> unstable
+
+project_mask:
+  from_original: true             # seed from original flag & good_freq
+  mask_unstable_noise_channels: true
+  noise_outlier_nsigma: 5.0       # mask channels whose robust sigma is a wild outlier
+
+smoothing:
+  primary: none                   # native resolution is the frozen primary product
+  retain_original_resolution: true
+  diagnostic_rebin_factors: []    # optional diagnostic products (off by default)
+
+output:
+  compression: gzip               # deterministic; track_times disabled for reproducibility
+  compression_level: 4
+  float_dtype: float32
+
+quarantine:
+  # Candidates are processed ONLY by the frozen pipeline and written to a
+  # quarantined path; the CLI refuses them unless --process-candidates is set.
+  candidates: ["FRB20190131D", "FRB20211115A"]
