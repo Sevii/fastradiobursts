@@ -1,0 +1,614 @@
+data cleaning instructions 
+
+
+# Project ECHO-FRB: Data Preparation Instructions
+
+## 1. Mission of the data-preparation phase
+
+Prepare the public CHIME/FRB Catalog 2 data so that every later analysis can be reproduced from the original files without undocumented manual intervention.
+
+The data team is not yet responsible for deciding whether any burst is gravitationally lensed. Its job is to produce:
+
+* an immutable and verified raw archive;
+* a complete machine-readable data manifest;
+* standardized dynamic spectra and masks;
+* documented noise and baseline estimates;
+* eligibility and exclusion records for every observation;
+* a manually validated reference set;
+* storage and processing benchmarks.
+
+The proposal requires every downloaded file to be associated with checksums, dimensions, coordinate information, masks, usable off-pulse intervals, and catalog identifiers. 
+
+---
+
+# 2. Non-negotiable rules
+
+### Preserve the source data
+
+Never alter, overwrite, resave, normalize, or “clean” the original downloaded files.
+
+Maintain two distinct layers:
+
+* **Tier A:** immutable source files and checksums;
+* **Tier B:** standardized spectra and masks reproducibly generated from Tier A. 
+
+Any correction or transformation must occur in Tier B or later.
+
+### Everything must be reproducible
+
+Every generated file must be traceable to:
+
+* source-file checksum;
+* code version or Git commit;
+* configuration version;
+* software environment;
+* processing timestamp;
+* analyst or automated job responsible;
+* output checksum.
+
+Every figure and table must be generated from a versioned command, script, notebook, or workflow. 
+
+### Do not manually tune individual bursts
+
+Analysts may flag anomalies, but they must not change masks, smoothing, windows, baselines, or dedispersion settings for individual events unless the change is:
+
+1. explicitly part of a predefined quality-control procedure;
+2. recorded in the audit log;
+3. assigned a reason code;
+4. reproducible by another analyst.
+
+### Do not inspect candidates for scientific significance
+
+The two named candidate events may be used only for the formal reproduction task. They must not influence general preprocessing choices or quality thresholds. After reproduction, their new-pipeline outputs are to remain quarantined until the analysis is frozen. 
+
+---
+
+# 3. Required work sequence
+
+## Task 1: Create the authoritative data-source inventory
+
+Identify every public data source required for the project, including:
+
+* Catalog 2 metadata tables;
+* total-intensity dynamic spectra;
+* time and frequency coordinate information;
+* masks or channel-quality data;
+* morphology and signal measurements;
+* source and repeater associations;
+* localization and exposure metadata where available;
+* documentation, release notes, and data dictionaries;
+* data or code associated with the two reported lensing candidates.
+
+For each source, record:
+
+| Field           | Required content                               |
+| --------------- | ---------------------------------------------- |
+| Dataset name    | Official release or product name               |
+| Source location | Authoritative archive location                 |
+| Release/version | Exact version or release date                  |
+| Retrieval date  | UTC timestamp                                  |
+| File count      | Expected and downloaded                        |
+| Total size      | Compressed and uncompressed                    |
+| Documentation   | Associated readme or data dictionary           |
+| Access status   | Public, unavailable, incomplete, or restricted |
+| Notes           | Known format or interpretation issues          |
+
+### Completion condition
+
+The team can account for every required public product and identify any missing or inaccessible input before the analysis proceeds.
+
+---
+
+## Task 2: Build the immutable raw archive
+
+Download the source files into a read-only raw-data directory.
+
+Recommended structure:
+
+```text
+data/
+├── tier_a_raw/
+│   ├── catalog_metadata/
+│   ├── dynamic_spectra/
+│   ├── masks/
+│   ├── documentation/
+│   └── external_candidate_material/
+├── tier_b_standardized/
+├── manifests/
+├── quality_control/
+└── logs/
+```
+
+For every source file:
+
+1. Record the original filename.
+2. Record its authoritative source.
+3. Record download time.
+4. Record file size.
+5. Calculate a SHA-256 checksum.
+6. Verify the file can be opened.
+7. Store the retrieval and verification status.
+8. Prevent accidental modification of the raw copy.
+
+Do not silently replace a changed source file. If the authoritative archive changes, retain both versions and assign separate version records.
+
+### Completion condition
+
+A second analyst can verify that the local archive exactly matches the downloaded files using the manifest and checksums.
+
+---
+
+## Task 3: Produce the master file manifest
+
+Create one row per data product or observation.
+
+At minimum, the manifest should include:
+
+### Identity
+
+* catalog burst ID;
+* source ID;
+* repeater status;
+* observation date;
+* catalog version;
+* original filename;
+* public file identifier;
+* local relative path.
+
+### Integrity
+
+* SHA-256 checksum;
+* file size;
+* readable status;
+* file format;
+* array dimensions;
+* data type;
+* missing or invalid values;
+* truncation or corruption flag.
+
+### Coordinates
+
+* number of time bins;
+* time-bin width;
+* time-axis start and end;
+* number of frequency channels;
+* minimum and maximum frequency;
+* channel width;
+* frequency-axis orientation;
+* coordinate units;
+* coordinate monotonicity status.
+
+### Masks and usable data
+
+* original masked-pixel fraction;
+* original masked-channel fraction;
+* project-mask fraction;
+* number of usable channels;
+* usable bandwidth;
+* available pre-burst off-pulse duration;
+* available post-burst off-pulse duration;
+* saturation flag;
+* edge-truncation flag.
+
+### Catalog associations
+
+* signal-to-noise ratio;
+* dispersion measure;
+* catalog width;
+* morphology label;
+* source association;
+* localization metadata where available;
+* relevant catalog quality flags.
+
+### Processing traceability
+
+* preprocessing version;
+* configuration hash;
+* code commit;
+* software environment identifier;
+* processing status;
+* output checksum;
+* exclusion status;
+* primary exclusion reason code.
+
+The proposal requires identity, integrity, preprocessing, search, significance, robustness, and decision information to be stored in machine-readable audit records. The data phase should establish the identity, integrity, and preprocessing sections of that structure. 
+
+### Completion condition
+
+Every downloaded observation has exactly one authoritative manifest record, and every manifest record resolves to a verified file.
+
+---
+
+## Task 4: Validate the file schema and array interpretation
+
+For each supported data format, verify:
+
+* which axis represents time;
+* which axis represents frequency;
+* whether frequency increases or decreases by channel;
+* the units of intensity;
+* the meaning of zero, NaN, infinity, and masked values;
+* whether masks apply to pixels, channels, time bins, or combinations;
+* whether time coordinates are absolute or relative;
+* whether dedispersion has already been applied;
+* the reference dispersion measure;
+* whether the spectrum has been rebinned, smoothed, or averaged;
+* whether off-pulse data are included in the saved window.
+
+Create automated schema tests that fail loudly when:
+
+* dimensions do not match coordinate arrays;
+* time or frequency coordinates are missing;
+* coordinate order is inconsistent;
+* the data contain unexpected non-finite values;
+* masks have incompatible dimensions;
+* declared units are absent or inconsistent;
+* metadata identifiers disagree with the catalog.
+
+The proposal explicitly requires validation of array orientation, units, cadence, channel frequencies, and metadata against a manually inspected reference set. 
+
+### Completion condition
+
+The team has a documented interpretation of every supported file type and automated tests that detect incompatible or malformed files.
+
+---
+
+## Task 5: Create a manually inspected reference set
+
+Select approximately 20–50 observations representing the expected range of data conditions. The set should include, where possible:
+
+* high- and low-S/N bursts;
+* narrow- and broad-band bursts;
+* single- and multi-component bursts;
+* repeaters and apparent nonrepeaters;
+* strongly masked observations;
+* scattered bursts;
+* bursts near saved-window boundaries;
+* examples with RFI contamination;
+* examples with unusual frequency structure;
+* examples with limited off-pulse data.
+
+For each reference event, generate:
+
+1. Raw dynamic-spectrum image.
+2. Original mask image.
+3. Frequency-integrated time series.
+4. Time-integrated spectrum.
+5. Time and frequency coordinate summaries.
+6. Off-pulse-region visualization.
+7. Baseline and noise diagnostic plots.
+8. Standardized dynamic spectrum.
+9. Project mask.
+10. Analyst inspection notes.
+
+At least two analysts should independently inspect a subset and reconcile disagreements.
+
+### Completion condition
+
+The reference plots confirm that axis orientation, masks, coordinates, burst location, and preprocessing behavior are correctly interpreted.
+
+---
+
+## Task 6: Define standardized preprocessing
+
+Create a deterministic preprocessing pipeline that takes a Tier A file and produces a Tier B standardized product.
+
+The standardized product must retain:
+
+* the intensity dynamic spectrum;
+* the time and frequency coordinates;
+* the original mask;
+* a separate project-generated mask;
+* baseline estimates;
+* channel-dependent noise estimates;
+* off-pulse-region definitions;
+* processing metadata;
+* source-file checksum;
+* configuration hash.
+
+The proposal requires original masks to be preserved and any project mask to be stored separately. 
+
+### Baseline estimation
+
+Estimate the baseline using prespecified robust statistics from off-pulse regions.
+
+The method must:
+
+* be applied consistently across events;
+* tolerate outliers and residual RFI;
+* operate at least at the channel level where data permit;
+* record which samples were used;
+* report failure when insufficient off-pulse data exist;
+* avoid subtracting burst structure as background.
+
+### Noise estimation
+
+Estimate channel-dependent noise from the off-pulse data.
+
+Store:
+
+* noise standard deviation by channel;
+* number of samples used;
+* robust and conventional estimates if both are calculated;
+* evidence of correlated noise;
+* channels with unstable or undefined estimates;
+* summary quality flags.
+
+The proposal calls for channel-dependent baseline and noise estimation using robust statistics and warns against removing the true spectral envelope by normalizing every channel to the same burst amplitude. 
+
+### Dedispersion
+
+Use the catalog dedispersion as the baseline representation.
+
+Do not optimize the dispersion measure separately for each event during data preparation. Any later small DM perturbation must be a predefined robustness test, not a tuning step. 
+
+### Smoothing and rebinning
+
+The primary standardized representation should use one documented, fixed configuration.
+
+If multiple resolutions are generated:
+
+* designate one as primary;
+* label others as diagnostic products;
+* record every operation;
+* retain the original resolution;
+* do not overwrite previous products.
+
+The proposal requires every smoothing, interpolation, and rebinning operation to be recorded. 
+
+### Completion condition
+
+Running the preprocessing command twice on the same source file and configuration produces identical standardized outputs and checksums.
+
+---
+
+## Task 7: Define eligibility and exclusion rules
+
+Every observation must receive one of these statuses:
+
+* eligible;
+* provisionally eligible;
+* excluded;
+* processing failure;
+* pending manual review.
+
+An observation should be eligible only when it has:
+
+* a readable dynamic spectrum;
+* validated time and frequency coordinates;
+* a usable off-pulse interval;
+* enough unmasked bandwidth;
+* enough time coverage to test at least one allowed delay;
+* no unrecoverable saturation;
+* no unrecoverable truncation;
+* no unrecoverable data corruption. 
+
+### Recommended primary exclusion reason codes
+
+```text
+E001_UNREADABLE_FILE
+E002_CHECKSUM_FAILURE
+E003_MISSING_TIME_AXIS
+E004_MISSING_FREQUENCY_AXIS
+E005_AXIS_DIMENSION_MISMATCH
+E006_INSUFFICIENT_OFF_PULSE
+E007_INSUFFICIENT_USABLE_BANDWIDTH
+E008_INSUFFICIENT_TIME_COVERAGE
+E009_UNRECOVERABLE_SATURATION
+E010_UNRECOVERABLE_TRUNCATION
+E011_CORRUPT_ARRAY
+E012_MASK_UNINTERPRETABLE
+E013_METADATA_MISMATCH
+E014_NOISE_ESTIMATION_FAILURE
+E015_UNSUPPORTED_FORMAT
+E099_OTHER_REQUIRES_REVIEW
+```
+
+Every excluded event must have:
+
+* one primary reason code;
+* optional secondary reason codes;
+* a human-readable explanation;
+* the responsible code version;
+* the date of the decision;
+* whether the exclusion is reversible.
+
+Do not delete excluded observations.
+
+### Completion condition
+
+Every catalog observation has an explicit status, and no observation disappears from the analysis without a machine-readable reason.
+
+---
+
+## Task 8: Perform quality-control tests
+
+Run automated QC on every standardized product.
+
+### Required QC checks
+
+* Source checksum matches the manifest.
+* Output can be reopened.
+* Time and frequency coordinates match array dimensions.
+* Coordinates are monotonic.
+* Original and project masks have valid shapes.
+* Unmasked data contain no unexpected infinities.
+* Baseline residuals are centered within tolerance.
+* Noise estimates are positive and finite.
+* Off-pulse samples do not overlap the defined burst region.
+* Usable bandwidth is calculated correctly.
+* Mask fractions are within valid bounds.
+* Burst metadata match the catalog.
+* Standardized output points back to exactly one Tier A input.
+* Reprocessing is deterministic.
+
+### Distribution-level QC
+
+Generate catalog-wide distributions for:
+
+* file sizes;
+* array dimensions;
+* number of time bins;
+* number of frequency channels;
+* usable bandwidth;
+* mask fractions;
+* off-pulse duration;
+* baseline offsets;
+* channel noise;
+* S/N;
+* dispersion measure;
+* processing time;
+* eligible versus excluded counts.
+
+Investigate outliers rather than automatically removing them.
+
+### Completion condition
+
+All failed QC checks are resolved, assigned an exclusion code, or entered into a documented manual-review queue.
+
+---
+
+## Task 9: Benchmark storage and throughput
+
+Measure actual performance rather than estimating from assumptions.
+
+Record:
+
+* total raw archive size;
+* standardized archive size;
+* compression ratio;
+* average and worst-case file-loading time;
+* preprocessing time per observation;
+* peak RAM use;
+* disk-read and disk-write rates;
+* output size per observation;
+* projected full-catalog runtime;
+* projected storage required for Tier B;
+* projected storage for initial injection and null products.
+
+Use a representative sample rather than only easy or small events.
+
+The project requires the archive footprint, compression ratio, and preprocessing throughput to be measured before storage or compute purchases are made. 
+
+The existing workstation is expected to be sufficient for the audit, preprocessing, lightweight catalog scan, and initial injections, so additional hardware should not be requested until profiling demonstrates a bottleneck. 
+
+### Completion condition
+
+The team can provide defensible estimates for:
+
+* total disk requirement;
+* full preprocessing runtime;
+* optimal batch size;
+* number of parallel workers;
+* whether additional storage is necessary.
+
+---
+
+## Task 10: Produce the data-preparation report
+
+The final report should contain:
+
+### Dataset inventory
+
+* expected versus retrieved files;
+* total observations;
+* archive size;
+* missing or inaccessible products;
+* release versions and checksums.
+
+### Schema documentation
+
+* file formats;
+* array orientation;
+* coordinate interpretation;
+* mask interpretation;
+* units;
+* metadata mappings.
+
+### Processing definition
+
+* baseline method;
+* noise method;
+* off-pulse selection;
+* mask handling;
+* dedispersion convention;
+* smoothing and rebinning rules;
+* standardized output schema.
+
+### Quality results
+
+* eligible count;
+* excluded count;
+* counts by exclusion reason;
+* unresolved manual reviews;
+* distribution plots;
+* representative reference-event plots;
+* known limitations.
+
+### Benchmark results
+
+* preprocessing time;
+* storage footprint;
+* memory requirements;
+* recommended parallelism;
+* projected full-catalog runtime.
+
+### Reproducibility information
+
+* repository commit;
+* environment lock file;
+* configuration hashes;
+* commands required to regenerate the products;
+* manifest and report checksums.
+
+---
+
+# 4. Required data products
+
+The data team must deliver the following before the phase is considered complete:
+
+```text
+1. raw_archive_manifest.parquet
+2. observation_manifest.parquet
+3. catalog_metadata_normalized.parquet
+4. eligibility_table.parquet
+5. exclusion_reason_dictionary.yaml
+6. preprocessing_config.yaml
+7. standardized_data_schema.md
+8. reference_event_index.csv
+9. reference_event_qc_plots/
+10. catalog_qc_summary.html or .pdf
+11. archive_storage_benchmark.md
+12. preprocessing_throughput_report.md
+13. reproducible environment lock file
+14. automated schema and QC tests
+15. WP0_data_audit_report.md
+```
+
+Large products may be divided into partitioned Parquet, HDF5, Zarr, or another justified format, but the chosen format must preserve coordinates, masks, metadata, and provenance without ambiguity.
+
+---
+
+# 5. Data-preparation exit gate
+
+The phase is complete only when all of the following are true:
+
+* All required public products are either downloaded or formally documented as unavailable.
+* Every source file has a verified checksum.
+* Every observation has an authoritative manifest record.
+* Time and frequency axes have been validated.
+* Original masks are preserved.
+* Project masks are stored separately.
+* Baseline and noise estimates are reproducible.
+* Off-pulse intervals are explicitly recorded.
+* Every observation has an eligibility status.
+* Every exclusion has a machine-readable primary reason.
+* A representative reference set has passed manual inspection.
+* Automated QC tests pass or produce documented exceptions.
+* Full-catalog storage and runtime have been benchmarked.
+* Tier B products can be regenerated from Tier A using one versioned command.
+* No candidate-specific tuning has entered the general preprocessing pipeline.
+
+The formal WP0 gate is that the required public products are accessible and interpretable, with a complete manifest and archive/throughput report. 
+
+Once this gate is passed, the team can begin **WP1: literal and clean-room reproduction of the previously reported FRB lensing candidates**.

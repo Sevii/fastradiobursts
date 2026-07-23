@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+# Data + generated products live on popos, never in git:
+data/
+*.h5
+*.parquet
+*.pdf
+!Project_ECHO-FRB_Updated_Research_Proposal.pdf
