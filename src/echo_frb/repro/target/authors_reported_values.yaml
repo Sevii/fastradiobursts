@@ -1,0 +1,106 @@
+# Authors' reported values — the reproducibility ground truth for WP1.
+#
+# Extracted from the sealed MICRO-FRB repo (github.com/Huan-Zhou-spec/MICRO-FRB)
+# and Zhou et al. 2026 (arXiv:2605.19653). This file is the machine-readable
+# reference the WP1 reproducibility matrix (W1.6) compares our literal and
+# clean-room runs against. It contains ONLY published numbers — no restricted data.
+#
+# Source of the committed run outputs: Figures/FRB_lensing_results_{G_3,SG_20,SG_100}/
+#   lens_catalog_summary.csv + lens_analysis_summary.txt + <FRB>_report.txt
+
+target:
+  paper: "Zhou et al. 2026, Evidence for IMBHs from Microlensing Signatures in CHIME/FRB Catalog 2"
+  arxiv: "2605.19653"
+  repo: "https://github.com/Huan-Zhou-spec/MICRO-FRB"
+  repo_pinned_commit: "c4fbfcabae551d933dbb24cd56bb11fa73b73419"   # 2026-05-18, tag "2026.05.18"
+  sealed_manifest: "~/frb_catalog2_prep/wp1_repro/repro_target_manifest.parquet"  # 272 files, 0.15 GB
+
+# Frozen __main__ parameters of SearchLensedFRB.py (process_frb_catalog_lens)
+literal_params:
+  catalog_file: "FRB_data/CHIME_cat2_frb/chimefrbcat2_first_duplicates.npy"
+  N: 340                 # number of multi-peak dynamic spectra processed
+  f_down: 32             # 16384 -> 512 channels
+  t_down: 1
+  rfi_factor: 3
+  time_step_ms: 0.98
+  smooth_sigma: 3        # ACF smoothing kernel (paper's stated sigma=3)
+  threshold: 3           # spike significance in sigma
+  min_diff_threshold: 0.1
+  n_noise: 30
+  n_bootstrap: 1000
+  random_seed: 42
+  secondary_peak_psnr_min: 10   # "rear peak SNR must be >= 10"
+  peak_match_tolerance_bins: 2  # +-2 ms match window
+
+# The paper's selection funnel. NOTE: the "initial candidate" count is
+# SMOOTHING-CONFIG-DEPENDENT — a primary WP1 finding. The paper's headline
+# "11 candidates" corresponds to the G_3 (Gaussian, sigma=3) config.
+selection_funnel:
+  processed: 340
+  by_config:
+    G_3:                 # Gaussian smoothing sigma=3  == the paper's primary
+      initial_candidates: 11
+      names: [FRB20190131D, FRB20190915E, FRB20200603B, FRB20210117D, FRB20210130C,
+              FRB20211115A, FRB20220225C, FRB20220424C, FRB20221129B, FRB20221216A,
+              FRB20230402B]
+    SG_20:               # Savitzky-Golay window=20
+      initial_candidates: 16
+      names: [FRB20190131D, FRB20190915E, FRB20191219B, FRB20200603B, FRB20200706A,
+              FRB20200707A, FRB20210130C, FRB20210220B, FRB20211115A, FRB20220118A,
+              FRB20220225C, FRB20220424C, FRB20220910A, FRB20221129B, FRB20230402B,
+              FRB20230904A]
+    SG_100:              # Savitzky-Golay window=100  (FRB20211115A ABSENT here)
+      initial_candidates: 12
+      names: [FRB20190131D, FRB20190915E, FRB20191219B, FRB20200122B, FRB20210117D,
+              FRB20210130C, FRB20211229E, FRB20220124A, FRB20220225C, FRB20220424C,
+              FRB20221231B, FRB20230708C]
+  after_morphology_reassessment: 9   # paper 11 -> 9 (subjective, not algorithmic)
+  final_candidates: 2
+
+# The two named candidates (proposal §3.2 holdout). Delays from the committed
+# G_3 reports; flux ratios (R_f) per episode from the paper body.
+named_candidates:
+  FRB20190131D:
+    delay_ms: 8.82
+    matched_peak_indices: [76, 85]
+    matched_pairs: [[76, 85]]
+    flux_ratio_ep1: 0.35
+    flux_ratio_ep1_err: 0.09
+    flux_ratio_ep2: 0.55
+    flux_ratio_ep2_err: 0.12
+    has_drift: false
+    # lens mass / redshift OUT OF WP1 SCOPE (detection + dt/mu only)
+  FRB20211115A:
+    delay_ms: 6.86
+    matched_peak_indices: [78, 85]
+    matched_pairs: [[78, 85]]
+    flux_ratio_ep1: 0.37
+    flux_ratio_ep1_err: 0.07
+    flux_ratio_ep2: 0.38
+    flux_ratio_ep2_err: 0.12
+    has_drift: false
+
+# All G_3 initial candidates with their reported ACF spike delays (ms), from
+# lens_analysis_summary.txt — used to score intermediate-candidate reproduction.
+g3_spike_delays_ms:
+  FRB20190131D: [8.82]
+  FRB20190915E: [2.94]
+  FRB20200603B: [9.8]
+  FRB20210117D: [2.94]
+  FRB20210130C: [2.94]
+  FRB20211115A: [6.86]
+  FRB20220225C: [8.82]
+  FRB20220424C: [6.86]
+  FRB20221129B: [7.84]
+  FRB20221216A: [1.96, 7.84]
+  FRB20230402B: [3.92]
+
+# Known reproduction hazards baked into the target (each becomes a matrix row).
+reproduction_hazards:
+  - "No requirements.txt / no pinned deps — env reconstructed (env/microfrb_repro.lock)."
+  - "No license."
+  - "Initial-candidate list depends on smoothing config (G_3=11, SG_20=16, SG_100=12)."
+  - "FRB20211115A (a FINAL candidate) is absent from the SG_100 initial list."
+  - "11->9 morphology reassessment is subjective, not algorithmically specified."
+  - "fpbh.py and Hardness_test.py hard-code headline results (cannot regenerate end-to-end)."
+  - "Hardness_test.py __main__ hard-codes FRB20230402B, not a final candidate."
