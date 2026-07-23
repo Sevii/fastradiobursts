@@ -18,7 +18,7 @@ products live on popos under `~/frb_catalog2/` (Tier A source) and
 | 3 Master manifest | 🟢 done | `observation_manifest.parquet` (4536×**90**), enriched with catalog table (S/N, DM, morphology, flags). `catalog_metadata_normalized.parquet` (4539 events, deliverable #3). |
 | 4 Schema validation | 🟢 done | `contract.py` + 16-test pytest suite (all pass) + `validate_catalog.py` → `schema_validation.parquet` (**4536/4536 PASS**, 0 errors). Docs updated. |
 | 5 Reference set | ⬜ not started | |
-| 6 Standardized preprocessing | ⬜ not started | |
+| 6 Standardized preprocessing | 🟢 done | `preprocess/standardize.py` + `preprocessing_config.yaml` → Tier B `.h5` (standardized, orig+project masks, baseline, per-channel noise, off-pulse, provenance). 8 tests. **Determinism verified on real data** (content + file sha256 identical on re-run). Candidate quarantine enforced. Full batch → `tier_b_manifest.parquet`. |
 | 7 Eligibility/exclusion | 🟢 done | `engine.py` + `eligibility_config.yaml` + `exclusion_reason_dictionary.yaml` → `eligibility_table.parquet`. 10 unit tests. 4236 eligible / 298 provisional / **2 excluded** / 0 failures. Invariant: all 4536 have a status. |
 | 8 QC | ⬜ not started | |
 | 9 Benchmark | ⬜ not started | (checksum: 501 files/s; manifest read ~full 56GB) |
@@ -37,6 +37,16 @@ products live on popos under `~/frb_catalog2/` (Tier A source) and
 - `num_time`: 20 / 162 / 2604 (min/med/max). 981 repeaters.
 - orig masked-pixel frac: med 0.14, max 0.96. masked-channel frac: med 0.28, max 0.68.
 - usable bandwidth: all ≥126 MHz. NaN/Inf: none. All coord checks pass.
+
+## Task 6 results (Tier B standardization)
+- 4532 products (eligible+provisional, candidates quarantined-skipped), 38 GB, 0 errors.
+- All content_sha256 + output_sha256 unique; determinism verified (re-run identical).
+- off-pulse: 4445 from `pulse_emission_region`, 87 `derived_profile` (= the un-modeled set).
+- correlated-noise indicators cleanly white (|lag-1| med 0.0009, |adj-chan| med 0.0034).
+- **2 noise-estimation failures** (`FRB20210216A`, `FRB20220126B`): off-pulse bins fall
+  below 16 AFTER the 5-bin guard (they passed eligibility, which counts off-pulse without
+  the guard) → **route to E014 in Task 8 QC** (excluded). Guard-vs-no-guard off-pulse count
+  is the source; preprocessing count (with guard) is authoritative for analysis.
 
 ## Schema diversity found by full-catalog validation (Task 4)
 - **87 "un-modeled" bursts** lack `model` + `pulse_emission_region` (structurally
