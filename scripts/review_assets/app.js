@@ -19,10 +19,11 @@ const SEQ = ["--seq-100", "--seq-250", "--seq-400", "--seq-550", "--seq-700"];
 
 const state = {
   statuses: new Set(STATUS_ORDER),
-  search: "", repeater: "", morph: "", reason: "",
+  search: "", repeater: "", morph: "", reason: "", refOnly: false,
   dmMin: null, dmMax: null, snrMin: null, snrMax: null,
   sortKey: "obs_utc", sortDir: 1, page: 0,
 };
+const BY_TNS = {};   // tns_name -> record (built after load)
 
 const $ = (id) => document.getElementById(id);
 const cssVar = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
@@ -44,6 +45,7 @@ async function boot() {
     fetch("bursts.json").then(r => r.json()),
   ]);
   COLS = META.columns;
+  for (const b of ALL) BY_TNS[b.tns_name] = b;
   // fixed DM color domain (log10 p5..p95) so color meaning is stable across filters
   const dms = ALL.map(b => b.dm_fitb).filter(v => v != null && v > 0).sort((a, b) => a - b);
   if (dms.length) {
@@ -73,6 +75,7 @@ function initFilters() {
 // ── filtering ───────────────────────────────────────────────────────────
 function passes(b) {
   if (!state.statuses.has(b.status)) return false;
+  if (state.refOnly && !b.is_reference) return false;
   if (state.search && !(b.tns_name || "").toLowerCase().includes(state.search)) return false;
   if (state.repeater === "1" && !b.is_repeater) return false;
   if (state.repeater === "0" && b.is_repeater) return false;
@@ -234,7 +237,7 @@ function renderTable(rows) {
       if (c.kind === "status") { const s = STATUS[b.status] || { label: b.status, color: "--muted" };
         td.innerHTML = `<span class="pill"><span class="dot" style="background:${cssVar(s.color)}"></span>${s.label}</span>`;
       } else if (c.kind === "id") {
-        td.innerHTML = `${b.tns_name}${b.is_repeater ? ' <span class="tag rep">R</span>' : ""}${b.quarantined ? ' <span class="tag">candidate</span>' : ""}`;
+        td.innerHTML = `${b.tns_name}${b.is_reference ? ' <span class="tag ref">ref</span>' : ""}${b.is_repeater ? ' <span class="tag rep">R</span>' : ""}${b.quarantined ? ' <span class="tag">candidate</span>' : ""}`;
       } else if (c.kind === "bool") { td.textContent = b[c.key] ? "yes" : "no";
       } else if (c.kind === "cat") { td.textContent = b[c.key] || "—";
       } else { td.textContent = fmtNum(b[c.key], c.fmt); }
@@ -250,9 +253,25 @@ function renderTable(rows) {
 
 // ── detail drawer ───────────────────────────────────────────────────────
 function kvRow(k, v) { return `<div class="row"><span class="k">${k}</span><span class="val">${v}</span></div>`; }
+function esc(s) { return String(s == null ? "" : s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
+
+function refSection(b) {
+  if (!b.is_reference || !b.ref) return "";
+  const r = b.ref;
+  const ok = /^ok$/i.test(r.autocheck || "");
+  const notes = [];
+  if (r.notes1) notes.push(["Analyst 1", r.notes1]);
+  if (r.notes2) notes.push(["Analyst 2", r.notes2]);
+  if (r.reconciliation) notes.push(["Reconciliation", r.reconciliation]);
+  return `<div class="sec">Reference-event review</div>`
+    + `<div class="explain">`
+    + (r.categories ? `<div><span class="k">categories</span> ${esc(r.categories)}</div>` : "")
+    + `<div>auto-check: <strong style="color:${cssVar(ok ? "--good" : "--warning")}">${esc(r.autocheck || "—")}</strong></div>`
+    + notes.map(([k, v]) => `<div class="note"><span class="k">${k}</span><div>${esc(v)}</div></div>`).join("")
+    + `</div>`;
+}
 function openDrawer(b) {
   const s = STATUS[b.status] || { label: b.status, color: "--muted", ic: "" };
-  const wf = `/api/waterfall/${b.tns_name}.png`;
   const loc = `/api/localization/${b.tns_name}.png`;
   const reasons = [];
   if (b.primary_reason) reasons.push(b.primary_reason + (META.reason_legend[b.primary_reason] ? ` — ${META.reason_legend[b.primary_reason]}` : ""));
@@ -290,13 +309,15 @@ function openDrawer(b) {
   const grid = (arr) => `<div class="kv">${arr.map(([k, v]) => kvRow(k, v)).join("")}</div>`;
 
   $("drawerBody").innerHTML =
-    `<h2>${b.tns_name}${b.is_repeater ? ' <span class="tag rep">repeater</span>' : ""}${b.quarantined ? ' <span class="tag">candidate · quarantined</span>' : ""}</h2>`
+    `<h2>${b.tns_name}${b.is_reference ? ' <span class="tag ref">reference</span>' : ""}${b.is_repeater ? ' <span class="tag rep">repeater</span>' : ""}${b.quarantined ? ' <span class="tag">candidate · quarantined</span>' : ""}</h2>`
     + `<div class="status-line"><span class="pill"><span class="dot" style="background:${cssVar(s.color)}"></span>`
       + `<span style="color:${cssVar(s.color)}">${s.ic}</span> <strong>${s.label}</strong></span>`
       + `${b.reversible ? ' <span class="tag">reversible</span>' : ""}</div>`
     + (reasons.length ? `<div class="explain">${b.explanation || ""}<div class="reasons">${reasons.map(r => "• " + r).join("<br>")}</div></div>` : (b.explanation ? `<div class="explain">${b.explanation}</div>` : ""))
-    + `<div class="sec">Standardized dynamic spectrum</div>`
-    + `<img class="plot" src="${wf}" alt="waterfall" loading="lazy">`
+    + `<div class="sec">QC diagnostics (9-panel)</div>`
+    + `<img class="plot qc" src="/api/qc/${b.tns_name}.png" alt="QC diagnostics" loading="lazy"`
+    + ` onclick="window.open(this.src,'_blank')" title="click to open full size">`
+    + refSection(b)
     + `<div class="sec">Localization</div>`
     + `<img class="plot" src="${loc}" alt="localization" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='block'">`
     + `<div class="imgcap" style="display:none">no localization image for this burst</div>`
@@ -317,21 +338,104 @@ function bindEvents() {
   const upd = debounce(() => {
     state.search = $("fSearch").value.trim().toLowerCase();
     state.repeater = $("fRepeater").value; state.morph = $("fMorph").value; state.reason = $("fReason").value;
+    state.refOnly = $("fRefOnly").checked;
     state.dmMin = num($("fDmMin").value); state.dmMax = num($("fDmMax").value);
     state.snrMin = num($("fSnrMin").value); state.snrMax = num($("fSnrMax").value);
     state.page = 0; render();
   }, 160);
-  for (const id of ["fSearch", "fRepeater", "fMorph", "fReason", "fDmMin", "fDmMax", "fSnrMin", "fSnrMax"])
+  for (const id of ["fSearch", "fRepeater", "fMorph", "fReason", "fRefOnly", "fDmMin", "fDmMax", "fSnrMin", "fSnrMax"])
     $(id).addEventListener("input", upd);
   $("fReset").onclick = () => {
     for (const id of ["fSearch", "fRepeater", "fMorph", "fReason", "fDmMin", "fDmMax", "fSnrMin", "fSnrMax"]) $(id).value = "";
-    Object.assign(state, { search: "", repeater: "", morph: "", reason: "", dmMin: null, dmMax: null, snrMin: null, snrMax: null, statuses: new Set(STATUS_ORDER), page: 0 });
+    $("fRefOnly").checked = false;
+    Object.assign(state, { search: "", repeater: "", morph: "", reason: "", refOnly: false, dmMin: null, dmMax: null, snrMin: null, snrMax: null, statuses: new Set(STATUS_ORDER), page: 0 });
     render();
   };
   $("prev").onclick = () => { if (state.page > 0) { state.page--; render(); } };
   $("next").onclick = () => { state.page++; render(); };
   $("drawerClose").onclick = closeDrawer; $("drawerBg").onclick = closeDrawer;
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDrawer(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closeDrawer(); closeCompare(); } });
+  bindCompare();
+}
+
+// ── comparison view ─────────────────────────────────────────────────────
+const cmp = { A: null, B: null };
+function openCompare() { $("compare").classList.add("open"); $("compareBg").classList.add("open"); $("compare").setAttribute("aria-hidden", "false"); }
+function closeCompare() { $("compare").classList.remove("open"); $("compareBg").classList.remove("open"); $("compare").setAttribute("aria-hidden", "true"); }
+
+function bindCompare() {
+  $("openCompare").onclick = openCompare;
+  $("compareClose").onclick = closeCompare;
+  $("compareBg").onclick = closeCompare;
+  for (const input of document.querySelectorAll(".picker input")) {
+    const side = input.dataset.side;
+    const list = document.querySelector(`.picker-list[data-side="${side}"]`);
+    input.addEventListener("input", () => {
+      const q = input.value.trim().toLowerCase();
+      list.innerHTML = "";
+      if (!q) { list.classList.remove("open"); return; }
+      const hits = ALL.filter(b => b.tns_name.toLowerCase().includes(q)).slice(0, 20);
+      for (const b of hits) {
+        const it = document.createElement("div"); it.className = "picker-item";
+        it.innerHTML = `${b.tns_name}${b.is_reference ? ' <span class="tag ref">ref</span>' : ""}${b.is_repeater ? ' <span class="tag rep">R</span>' : ""}`;
+        it.onclick = () => { cmp[side] = b; input.value = b.tns_name; list.classList.remove("open"); renderCompare(); };
+        list.appendChild(it);
+      }
+      list.classList.toggle("open", hits.length > 0);
+    });
+    input.addEventListener("blur", () => setTimeout(() => list.classList.remove("open"), 150));
+  }
+}
+
+const CMP_ROWS = [
+  ["Status", b => (STATUS[b.status] || {}).label || b.status, false],
+  ["Reference event", b => b.is_reference ? "yes" : "no", false],
+  ["Repeater", b => b.is_repeater ? "yes" : "no", false],
+  ["Morphology", b => b.morphology_label || "—", false],
+  ["S/N", b => b.catalog_snr, true, ".1f"],
+  ["DM (pc cm⁻³)", b => b.dm_fitb, true, ".1f"],
+  ["DM incoherent", b => b.dm_incoherent, true, ".1f"],
+  ["Fluence (Jy ms)", b => b.fluence, true, ".2f"],
+  ["Flux (Jy)", b => b.flux, true, ".2f"],
+  ["Width (s)", b => b.bc_width, true, ".3g"],
+  ["Scattering (s)", b => b.scat_time, true, ".3g"],
+  ["Spectral idx", b => b.sp_idx, true, ".2f"],
+  ["Usable BW (MHz)", b => b.usable_bandwidth_mhz, true, ".0f"],
+  ["Usable channels", b => b.n_usable_channels, true, ".0f"],
+  ["RA (°)", b => b.ra, true, ".3f"],
+  ["Dec (°)", b => b.dec, true, ".3f"],
+];
+
+function cmpColumn(b) {
+  const s = STATUS[b.status] || { label: b.status, color: "--muted", ic: "" };
+  return `<div class="cmp-col">`
+    + `<div class="cmp-head"><strong>${b.tns_name}</strong>`
+    + `${b.is_reference ? ' <span class="tag ref">ref</span>' : ""}${b.is_repeater ? ' <span class="tag rep">R</span>' : ""}`
+    + `<div class="pill"><span class="dot" style="background:${cssVar(s.color)}"></span>${s.label}</div></div>`
+    + `<div class="sec">QC diagnostics (9-panel)</div><img class="plot qc" src="/api/qc/${b.tns_name}.png" loading="lazy" onclick="window.open(this.src,'_blank')">`
+    + `<div class="sec">Localization</div><img class="plot" src="/api/localization/${b.tns_name}.png" loading="lazy" onerror="this.style.display='none'">`
+    + `</div>`;
+}
+
+function renderCompare() {
+  const A = cmp.A, B = cmp.B;
+  const body = $("compareBody");
+  if (!A || !B) { body.innerHTML = `<div class="loading">pick a burst on each side to compare</div>`; return; }
+  let rows = "";
+  for (const [label, get, isNum, fmt] of CMP_ROWS) {
+    const va = get(A), vb = get(B);
+    let da = isNum ? fmtNum(va, fmt) : (va ?? "—");
+    let db = isNum ? fmtNum(vb, fmt) : (vb ?? "—");
+    let diff = "";
+    if (isNum && va != null && vb != null && !Number.isNaN(+va) && !Number.isNaN(+vb)) {
+      const d = +vb - +va;
+      if (d !== 0) diff = `<span class="delta ${d > 0 ? "up" : "dn"}">${d > 0 ? "+" : ""}${trimG(d.toPrecision(3))}</span>`;
+    }
+    const differ = da !== db ? " differ" : "";
+    rows += `<div class="cmp-row${differ}"><span class="cmp-k">${label}</span><span class="cmp-a">${da}</span><span class="cmp-b">${db} ${diff}</span></div>`;
+  }
+  body.innerHTML = `<div class="cmp-cols">${cmpColumn(A)}${cmpColumn(B)}</div>`
+    + `<div class="sec">Metrics · A vs B (Δ = B − A)</div><div class="cmp-table">${rows}</div>`;
 }
 
 boot().catch(e => { $("subtitle").textContent = "failed to load: " + e; });

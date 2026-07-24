@@ -4,6 +4,10 @@
 Static assets (index.html, app.js, style.css, bursts.json, meta.json) are served
 from the bundle dir. Per-burst images are produced lazily:
 
+  GET /api/qc/<TNS>.png         -> live-render the full 9-panel QC figure from raw
+                                    Tier A + Tier B (make_plots.make_figure), cached
+                                    to <out>/cache/qc/. Serves the pre-made refqc PNG
+                                    for the 39 reference events.
   GET /api/waterfall/<TNS>.png  -> render standardized dynamic spectrum from the
                                     Tier B .h5 (cached to <out>/cache/), or a
                                     placeholder if no Tier B file exists.
@@ -20,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import io
+import json
 import os
 import re
 import sys
@@ -36,7 +41,12 @@ import numpy as np  # noqa: E402
 from matplotlib.figure import Figure  # noqa: E402
 from matplotlib.backends.backend_agg import FigureCanvasAgg  # noqa: E402
 
-from echo_frb.reference.make_plots import rebin_freq  # noqa: E402  (reused)
+# reused pipeline renderers (make_plots sets the Agg backend on import)
+from echo_frb.reference.make_plots import (  # noqa: E402
+    rebin_freq, load_tier_a, load_tier_b, make_figure,
+)
+
+RECORDS = {}   # tns_name -> burst record (loaded from bursts.json at startup)
 
 TNS_RE = re.compile(r"^FRB[0-9A-Za-z]+$")
 _RENDER_LOCK = threading.Lock()
@@ -89,6 +99,43 @@ def render_waterfall(tns: str, tierb_dir: str) -> bytes:
     return _fig_to_png_bytes(fig)
 
 
+def _qc_meta(tns: str) -> dict:
+    """Build the make_figure meta dict from the burst record loaded at startup."""
+    rec = RECORDS.get(tns, {})
+    ref = rec.get("ref") or {}
+    categories = ref.get("categories")
+    if not categories:
+        parts = []
+        if rec.get("morphology_label"):
+            parts.append(rec["morphology_label"])
+        parts.append("repeater" if rec.get("is_repeater") else "nonrepeater")
+        categories = ";".join(parts)
+    return {
+        "tns_name": tns,
+        "categories": categories,
+        "status": rec.get("status", "unknown"),
+        "catalog_snr": rec.get("catalog_snr"),
+        "usable_bandwidth_mhz": rec.get("usable_bandwidth_mhz"),
+        "morphology_label": rec.get("morphology_label"),
+        "n_subbursts": rec.get("n_subbursts"),
+        "is_repeater": rec.get("is_repeater"),
+        "scat_time": rec.get("scat_time"),
+    }
+
+
+def render_qc(tns: str, source_root: str, tierb_dir: str) -> bytes:
+    """Live-render the full 9-panel QC figure (reuses make_plots.make_figure)."""
+    src = os.path.join(source_root, f"{tns}_stokesi_dynamic_spectrum.h5")
+    if not os.path.exists(src):
+        return _placeholder_png("No raw Tier A file for this burst")
+    A = load_tier_a(src)
+    tb = os.path.join(tierb_dir, f"{tns}_tierb.h5")
+    B = load_tier_b(tb) if os.path.exists(tb) else None
+    buf = io.BytesIO()
+    make_figure(A, B, _qc_meta(tns), buf)   # writes PNG to the buffer
+    return buf.getvalue()
+
+
 class Handler(SimpleHTTPRequestHandler):
     # injected by partial(): out_dir, tierb_dir, loc_dir, pdf_dir, cache_dir
     def _send_bytes(self, data: bytes, ctype: str, cache=True):
@@ -105,6 +152,33 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self):  # noqa: N802
         p = self.path.split("?", 1)[0]
+
+        if p.startswith("/api/qc/"):
+            tns = os.path.basename(p)[: -len(".png")]
+            if not TNS_RE.match(tns):
+                return self._fail(400, "bad name")
+            # fast path: pre-made reference-event QC plot (identical make_figure output)
+            premade = os.path.join(self.refqc_dir, f"{tns}_refqc.png")
+            if os.path.exists(premade):
+                with open(premade, "rb") as f:
+                    return self._send_bytes(f.read(), "image/png")
+            cache_png = os.path.join(self.qc_cache_dir, f"{tns}.png")
+            if os.path.exists(cache_png):
+                with open(cache_png, "rb") as f:
+                    return self._send_bytes(f.read(), "image/png")
+            with _RENDER_LOCK:
+                if os.path.exists(cache_png):          # double-check after wait
+                    with open(cache_png, "rb") as f:
+                        return self._send_bytes(f.read(), "image/png")
+                try:
+                    data = render_qc(tns, self.source_root, self.tierb_dir)
+                except Exception as e:  # noqa: BLE001
+                    return self._fail(500, f"qc render error: {e}")
+                tmp = cache_png + ".part"
+                with open(tmp, "wb") as f:
+                    f.write(data)
+                os.replace(tmp, cache_png)
+            return self._send_bytes(data, "image/png")
 
         if p.startswith("/api/waterfall/"):
             tns = os.path.basename(p)[: -len(".png")]
@@ -138,6 +212,16 @@ class Handler(SimpleHTTPRequestHandler):
             with open(fp, "rb") as f:
                 return self._send_bytes(f.read(), "image/png")
 
+        if p.startswith("/api/refqc/"):
+            tns = os.path.basename(p)[: -len(".png")]
+            if not TNS_RE.match(tns):
+                return self._fail(400, "bad name")
+            fp = os.path.join(self.refqc_dir, f"{tns}_refqc.png")
+            if not os.path.exists(fp):
+                return self._fail(404, "no reference QC plot")
+            with open(fp, "rb") as f:
+                return self._send_bytes(f.read(), "image/png")
+
         if p.startswith("/api/pdf/"):
             tns = os.path.basename(p)
             if not TNS_RE.match(tns):
@@ -162,12 +246,26 @@ def main():
                     default=os.path.join(home, "frb_catalog2", "localizations", "plots"))
     ap.add_argument("--pdf-dir",
                     default=os.path.join(home, "frb_catalog2", "dynamic_spectra", "plots", "data"))
+    ap.add_argument("--refqc-dir",
+                    default=os.path.join(REPO, "reference_review", "reference_event_qc_plots"),
+                    help="dir of <TNS>_refqc.png reference-event QC figures")
+    ap.add_argument("--source-root",
+                    default=os.path.join(home, "frb_catalog2", "dynamic_spectra", "data"),
+                    help="dir of raw Tier A <TNS>_stokesi_dynamic_spectrum.h5 files")
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--bind", default="127.0.0.1")
     args = ap.parse_args()
 
     cache_dir = os.path.join(args.out, "cache")
-    os.makedirs(cache_dir, exist_ok=True)
+    qc_cache_dir = os.path.join(cache_dir, "qc")
+    os.makedirs(qc_cache_dir, exist_ok=True)
+
+    # load per-burst records so the QC figure can title/annotate itself
+    global RECORDS
+    bj = os.path.join(args.out, "bursts.json")
+    if os.path.exists(bj):
+        with open(bj) as f:
+            RECORDS = {r["tns_name"]: r for r in json.load(f)}
 
     handler = partial(Handler, directory=args.out)
     # attach config as class attributes visible to instances
@@ -175,12 +273,17 @@ def main():
     Handler.tierb_dir = args.tierb_dir
     Handler.loc_dir = args.loc_dir
     Handler.pdf_dir = args.pdf_dir
+    Handler.refqc_dir = args.refqc_dir
+    Handler.source_root = args.source_root
     Handler.cache_dir = cache_dir
+    Handler.qc_cache_dir = qc_cache_dir
 
     srv = ThreadingHTTPServer((args.bind, args.port), handler)
     print(f"serving {args.out} at http://{args.bind}:{args.port}")
+    print(f"  raw Tier A: {args.source_root}")
     print(f"  tier B: {args.tierb_dir}")
     print(f"  localizations: {args.loc_dir}")
+    print(f"  loaded {len(RECORDS)} burst records for QC metadata")
     print("tunnel from the Mac:  ssh -N -L {0}:localhost:{0} popos".format(args.port))
     try:
         srv.serve_forever()

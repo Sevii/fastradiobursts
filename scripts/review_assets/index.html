@@ -4,8 +4,13 @@
 <link rel="stylesheet" href="style.css">
 <div class="wrap">
   <header>
-    <h1>CHIME/FRB Catalog 2 — Visual Review</h1>
-    <div class="sub" id="subtitle">loading…</div>
+    <div class="headrow">
+      <div>
+        <h1>CHIME/FRB Catalog 2 — Visual Review</h1>
+        <div class="sub" id="subtitle">loading…</div>
+      </div>
+      <button class="btn primary" id="openCompare">⇄ Compare bursts</button>
+    </div>
   </header>
 
   <div class="kpis" id="kpis"></div>
@@ -37,6 +42,10 @@
       <div class="range"><input id="fSnrMin" type="number" placeholder="min"><span>–</span><input id="fSnrMax" type="number" placeholder="max"></div>
     </div>
     <div class="field">
+      <label>Reference</label>
+      <label class="checkline"><input id="fRefOnly" type="checkbox"> reference events only</label>
+    </div>
+    <div class="field">
       <label>&nbsp;</label>
       <button class="btn" id="fReset">Reset filters</button>
     </div>
@@ -64,5 +73,26 @@
   <button class="x" id="drawerClose" aria-label="close">×</button>
   <div id="drawerBody"><div class="loading">select a burst</div></div>
 </aside>
+
+<div class="compare-bg" id="compareBg"></div>
+<section class="compare" id="compare" aria-hidden="true">
+  <div class="compare-head">
+    <h2>Compare two bursts</h2>
+    <button class="x" id="compareClose" aria-label="close">×</button>
+  </div>
+  <div class="compare-pickers">
+    <div class="picker" id="pickerA">
+      <label>Burst A</label>
+      <input type="search" placeholder="type a TNS name…" autocomplete="off" data-side="A">
+      <div class="picker-list" data-side="A"></div>
+    </div>
+    <div class="picker" id="pickerB">
+      <label>Burst B</label>
+      <input type="search" placeholder="type a TNS name…" autocomplete="off" data-side="B">
+      <div class="picker-list" data-side="B"></div>
+    </div>
+  </div>
+  <div class="compare-body" id="compareBody"></div>
+</section>
 
 <script src="app.js"></script>

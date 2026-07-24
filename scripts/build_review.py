@@ -94,7 +94,27 @@ def read_cols(path, cols):
     return df[keep]
 
 
-def build(prep: str, out: str) -> None:
+def load_reference_index(path):
+    """tns_name -> {categories, autocheck, notes1, notes2, reconciliation}."""
+    refs = {}
+    if not path or not os.path.exists(path):
+        return refs
+    rd = pd.read_csv(path, dtype=str).fillna("")
+    for _, r in rd.iterrows():
+        tns = r.get("tns_name", "").strip()
+        if not tns:
+            continue
+        refs[tns] = {
+            "categories": r.get("categories", "").strip(),
+            "autocheck": r.get("interp_autocheck", "").strip(),
+            "notes1": r.get("analyst_1_notes", "").strip(),
+            "notes2": r.get("analyst_2_notes", "").strip(),
+            "reconciliation": r.get("reconciliation", "").strip(),
+        }
+    return refs
+
+
+def build(prep: str, out: str, refindex: str = None) -> None:
     man = os.path.join(prep, "manifests")
     elig = read_cols(os.path.join(man, "eligibility_table.parquet"), ELIG_COLS)
     cat = read_cols(os.path.join(man, "catalog_metadata_normalized.parquet"), CAT_COLS)
@@ -106,11 +126,18 @@ def build(prep: str, out: str) -> None:
     df["catalog_snr"] = df.apply(_catalog_snr, axis=1)
     df["has_tierb"] = df["tns_name"].isin(tierb_names)
 
+    refs = load_reference_index(refindex)
+
     records = []
     for _, row in df.iterrows():
         rec = {k: _clean(row[k]) for k in df.columns}
+        ref = refs.get(rec["tns_name"])
+        rec["is_reference"] = ref is not None
+        if ref is not None:
+            rec["ref"] = ref
         records.append(rec)
     records.sort(key=lambda r: (r.get("obs_utc") or "", r["tns_name"]))
+    n_reference = sum(1 for r in records if r.get("is_reference"))
 
     os.makedirs(out, exist_ok=True)
     with open(os.path.join(out, "bursts.json"), "w") as f:
@@ -141,6 +168,7 @@ def build(prep: str, out: str) -> None:
         "n_with_tierb": int(df["has_tierb"].sum()),
         "n_repeaters": int(df["is_repeater"].fillna(False).astype(bool).sum()),
         "n_candidates": int(df["is_candidate"].fillna(False).astype(bool).sum()),
+        "n_reference": n_reference,
         "status_counts": {str(k): int(v) for k, v in status_counts.items()},
         "reason_legend": reason_legend,
         "qc_summary": qc_summary,
@@ -181,7 +209,7 @@ def build(prep: str, out: str) -> None:
     print(f"wrote {len(records)} bursts -> {os.path.join(out, 'bursts.json')}")
     print(f"  status: {meta['status_counts']}")
     print(f"  with Tier B waterfall: {meta['n_with_tierb']} | repeaters: {meta['n_repeaters']}"
-          f" | candidates: {meta['n_candidates']}")
+          f" | candidates: {meta['n_candidates']} | reference events: {meta['n_reference']}")
     print(f"  assets + meta.json copied to {out}")
 
 
@@ -191,9 +219,12 @@ def main():
                     help="processed-products dir (contains manifests/, quality_control/)")
     ap.add_argument("--out", default=None,
                     help="output bundle dir (default: <prep>/review)")
+    ap.add_argument("--refindex",
+                    default=os.path.join(REPO, "reference_review", "reference_event_index.csv"),
+                    help="reference_event_index.csv (marks the curated reference events)")
     args = ap.parse_args()
     out = args.out or os.path.join(args.prep, "review")
-    build(args.prep, out)
+    build(args.prep, out, args.refindex)
 
 
 if __name__ == "__main__":

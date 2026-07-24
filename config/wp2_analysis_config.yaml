@@ -1,0 +1,90 @@
+# WP2 analysis configuration (Project ECHO-FRB) — FROZEN at the WP2->WP3 boundary.
+# Single source of truth for the copy statistic + nulls + injections + candidate
+# criterion + global significance. Values below are the FROZEN choices determined
+# across W2.2-W2.8 and recorded in the preregistration (docs/WP2_preregistration.md).
+# Any change after WP3 begins creates a NEW analysis version and forfeits the
+# original significance calibration (proposal §5.8).
+version: 2
+analysis_version: "wp2-frozen-v1"
+frozen_date: "2026-07-23"
+
+# --- delay domain (proposal §5.3; set from the WP0 audit) -------------------
+delay_domain:
+  dt_min_ms: 2.0
+  dt_max_ms: 50.0
+  per_burst_window_fraction: 0.4     # dt_max <= frac * usable time span
+  grid_step_ms: 0.5                  # coarse grid; fractional-bin interp between
+
+# --- primary statistic chi2_copy (proposal §5.4) — masked, noise-weighted ---
+copy_statistic:
+  magnification_bounds: [0.02, 1.0]  # a in (0,1]: the delayed image is fainter
+  fractional_bin_interp: true
+  interp_kind: "linear"
+  rebin_nf: 256                      # mask-aware inverse-variance freq rebin (16384->256)
+  on_burst_k: 2.0                    # on-burst support: |A|/sigma > k
+  min_pixels: 32
+  # amplitude: closed-form template fit a = S(AB/sigB^2)/S(A^2/sigB^2); Δχ² is the
+  # matched-filter detection statistic; reduced χ² whitened by FULL noise
+  # (sigB^2 + a^2 sigA^2) so it ~ 1 at any magnification.
+
+# --- candidate criterion (frozen; W2.7 gate) -------------------------------
+candidate_criterion:
+  detect_delta_chi2_min: 100.0       # detectability (matched-filter SNR^2)
+  copy_ncc_min: 0.40                 # copy-quality: on-burst correlation
+  copy_reduced_chi2_max: 1.5         # copy-quality: noise-like residual
+  robustness_n_pass_min: 7           # of 9 diagnostics
+  mandatory_achromaticity: true      # ALL achromaticity checks must pass (not a vote)
+
+# --- robustness diagnostics tolerances (proposal §5.5; frozen) -------------
+robustness_tolerances:
+  n_bands: 4
+  delay_spread_bins_max: 1.5
+  mag_rel_spread_max: 0.6
+  ncc_spread_max: 0.25               # resolution + window stability
+  leave_band_out_min_frac: 0.35
+  residual_reduced_chi2_max: 1.5
+  fine_structure_ncc_min: 0.40
+  spectral_mag_reduced_max: 2.0      # scintillation catcher (W2.7)
+
+# --- Tier-1 catalog-wide triage (classical; proposal §5.3) -----------------
+tier1:
+  method: "segment_matchedfilter"
+  peak_nsigma: 4.0
+  second_nsigma: 3.0
+  max_proposals: 10
+
+# --- source-aware split (proposal §5.8) ------------------------------------
+split:
+  fractions: {development: 0.6, validation: 0.2, test: 0.2}
+  salt: "echo-frb-wp2-split-v1"      # UNCHANGED — freeze preserves the split
+
+# --- quarantine v2 (proposal §3.2) -----------------------------------------
+quarantine:
+  named: [FRB20190131D, FRB20211115A]
+  include_published_intermediates: true
+
+# --- empirical nulls (proposal §5.6) ---------------------------------------
+nulls:
+  surrogate_methods: [block_bootstrap, phase_randomization, tf_permutation]
+  xpair_match_features: [burst_width_s, catalog_snr, usable_bandwidth_mhz,
+                         scattering_timescale_s, is_repeater]
+  adverse_kinds: [achromatic_copy, drift, differential_dm, differential_scattering,
+                  chromatic_echo, scintillation, overlapping, rfi_remnant]
+
+# --- injection campaign (proposal §5.7, §6.2) ------------------------------
+injection:
+  dt_bins: [3, 4, 5, 6, 8, 10, 13, 17, 22, 30, 40]
+  mu: [0.1, 0.2, 0.3, 0.4, 0.5, 0.7, 0.9]
+  n_development: 10000
+  seed: 42
+
+# --- global significance (proposal §6.1; W2.8) -----------------------------
+global_significance:
+  method: "max_statistic_fwer"
+  resampling: "source_level_cluster_bootstrap"
+  n_boot: 20000
+  tail_model: "gpd"                  # fit on one null half, validated out-of-sample
+  # ranking statistic: LOCAL P-VALUE of the full candidate criterion within
+  # S/N-matched nulls. Raw Δχ² (brightness-dominated) and NCC (saturates) are NOT
+  # valid standalone global statistics (W2.8). Catalog-global run = WP4.
+  ranking_statistic: "local_pvalue_full_criterion"
