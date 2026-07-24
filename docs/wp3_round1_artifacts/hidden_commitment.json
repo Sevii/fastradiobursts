@@ -1,0 +1,11 @@
+{
+  "wp3_version": "wp3-blind-v1",
+  "round": 1,
+  "pool": 0,
+  "n_items": 880,
+  "labels_sha256": "c8066d2a2d9ac8ac099472efe3eb639da8cb79ad5abd62e0e3f0c91924a04d7a",
+  "labels_created_utc": "2026-07-24T05:40:00.175216+00:00",
+  "wp3_config_sha16": "a8af6623d6379d0e",
+  "analysis_config_sha16": "3712e96faa969fcc",
+  "seed_sha256": "37ba3881108bf3e48180350246c5959b9481633d0cb1d8694fb141dc74e5fe79"
+}

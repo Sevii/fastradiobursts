@@ -1,0 +1,94 @@
+# WP3 blind-injection HARNESS configuration (Project ECHO-FRB).
+#
+# This is the WP3 *harness* config: blind-round pools, hidden-mixture recipe, and
+# the PREDETERMINED gate targets. It is DISTINCT from the frozen analysis config
+# (config/wp2_analysis_config.yaml, `wp2-frozen-v1`) and MUST NOT modify it — WP3
+# changes zero analysis code and zero thresholds (proposal §5.8 step 7). The
+# analysis pipeline is pinned by `frozen.analysis_config_sha16` below; the WP3
+# evaluator refuses to run unless the live analysis config still hashes to it.
+#
+# The gate targets below are the numbers the PI signs into
+# docs/WP3_preregistration_addendum.md BEFORE the hidden set is scored. They are
+# derived from the WP2 development results + their Wilson CIs — not chosen to pass.
+version: 1
+wp3_version: "wp3-blind-v1"
+frozen_date: "2026-07-23"
+
+# --- the pinned frozen analysis pipeline (must not drift) -------------------
+frozen:
+  analysis_config: "config/wp2_analysis_config.yaml"
+  analysis_version: "wp2-frozen-v1"
+  analysis_config_sha16: "3712e96faa969fcc"   # sha256(file)[:16]; evaluator asserts equality
+
+# --- blind-round source pools (proposal §5.8 step 5: a re-do needs a FRESH,
+#     source-disjoint hidden set). Test sources are partitioned into K=2 pools;
+#     round r uses pool r. K=2 (not 3): the test split has only 96 multi-component
+#     bursts total, and repeaters make finer partitions too small/uneven — 2 pools
+#     keep round-1 (pool 0) large enough for the recipe. A 2nd failure => redesign
+#     at the methodology level, not another draw (finite catalog; §8.1, §11).
+#     Round 1 uses pool 0 (the larger, multi-component-richer pool by construction).
+pools:
+  k: 2
+  round1_pool: 0                               # pool 0 = larger share (repeater-heavy)
+  salt: "echo-frb-wp3-blind-v1"                # NEW salt (distinct from the split salt)
+  split_source: "test"                         # ONLY the sealed test split is eligible
+
+# --- hidden mixture recipe (proposal §5.8 step 3) --------------------------
+# Three truth classes; the analyst never sees counts, ratios, or labels.
+mixture:
+  # class 1 — lensed injections (POSITIVE): achromatic delayed copies into real
+  # single-component test hosts. Grid = frozen injection grid, oversampled near
+  # threshold (mu <= 0.4) where efficiency turns over.
+  n_injections: 300
+  injection_dt_bins: [3, 4, 5, 6, 8, 10, 13, 17, 22, 30, 40]   # = frozen grid
+  injection_mu: [0.1, 0.2, 0.3, 0.4, 0.5, 0.7, 0.9]            # = frozen grid
+  injection_mu_weights: [0.20, 0.20, 0.18, 0.15, 0.12, 0.09, 0.06]  # near-threshold oversample
+  # class 2 — unlensed real nulls (NEGATIVE): real test bursts run END-TO-END with
+  # NO injection = the catalog-representative FP (what WP2 measured, what WP4 does).
+  # Draw prioritizes the scarce multi-component bursts (the H-I stress cases; only
+  # ~96 in the whole test split) then fills with single-component real bursts. FP
+  # is reported stratified: all-morphology (the gated rate) vs multi-component-only
+  # (the stress statistic, wider CI given its small n).
+  n_real_null: 300
+  real_null_prioritize_multicomponent: true
+  # class 3 — adverse imitators (NEGATIVE): the 7 non-copy imitators into real test
+  # hosts. Deterministic artifacts must stay rejected; scintillation is MONITORED.
+  adverse_kinds: [drift, differential_dm, differential_scattering, chromatic_echo,
+                  scintillation, overlapping, rfi_remnant]
+  n_per_adverse_kind: 40                        # 7 * 40 = 280
+  adverse_mu: 0.5                               # fixed, as in the WP2 benchmark
+
+# --- PREDETERMINED gate targets (frozen pre-scoring) -----------------------
+# G1 — recovery agrees with the predicted FULL-criterion efficiency surface
+#      (wp3_predicted_efficiency.parquet, generated on the DEV split, full
+#      criterion, pre-unblind). Observed = full-criterion recovery on the hidden
+#      injections, out-of-sample.
+gate:
+  g1_efficiency:
+    predicted_surface: "wp3_predicted_efficiency.parquet"   # dev, full criterion, pre-committed
+    marginal_abs_tol: 0.07          # |eff_obs - eff_pred(marginalized over WP3 cells)| <= tol
+    require_ci_overlap: true        # obs & pred 95% Wilson CIs must overlap
+    surface_cell_coverage_min: 0.90 # >=90% of populated (mu,S/N) cells: obs within pred 95% CI
+    surface_signed_bias_max: 0.05   # |mean signed (obs-pred) over cells| <= this (no systematic tilt)
+    min_cell_n: 5                   # cells with fewer injections are not scored for coverage
+    # NOTE: eff(mu) is NOT required monotonic. The frozen full end-to-end criterion is
+    # non-monotonic in mu (robustness is stricter near mu->1, equal-brightness copies) —
+    # confirmed on the dev prediction. G1 tests obs-vs-pred AGREEMENT (marginal + cell
+    # coverage + bias); the mu-shape deviation is reported as a diagnostic, not gated.
+    # (Refinement made on dev data, BEFORE the hidden set was scored — addendum §4.)
+  g2_false_positive:                # per-class full-criterion FP targets; gate = observed rate
+                                    # (point estimate) <= target, Wilson CI REPORTED as resolution
+    real: 0.01                      # real nulls, ALL morphology — catalog-representative FP (WP2: 0%); HARD
+    real_multicomponent_monitored: 0.05  # multi-component stress subset (small n) — reported, not gated
+    deterministic: 0.01             # drift, differential_dm, chromatic_echo, rfi_remnant, overlapping (WP2: 0%)
+    deterministic_kinds: [drift, differential_dm, chromatic_echo, rfi_remnant, overlapping]
+    differential_scattering: 0.10   # near-deterministic (WP2: 8%)
+    scintillation_monitored: 0.45   # MONITORED not gated — expected <= WP2 36% + CI
+    scintillation_escalate: 0.60    # a gross excess above this is escalated to the PI (§11)
+
+# --- data locations (popos; Tier C/D, regenerable) -------------------------
+paths:
+  wp3_dir: "~/frb_catalog2_prep/wp3"            # blind_round_pools, hidden/, predicted eff
+  wp2_dir: "~/frb_catalog2_prep/wp2"            # source_split.parquet, injection_recovery.parquet
+  manifests: "~/frb_catalog2_prep/manifests"
+  tier_b_dir: "~/frb_catalog2_prep/tier_b_standardized"
