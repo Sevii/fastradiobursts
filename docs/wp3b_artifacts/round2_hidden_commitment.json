@@ -1,0 +1,15 @@
+{
+  "wp3_version": "wp3-blind-v2",
+  "round": 2,
+  "pool": 1,
+  "n_items": 600,
+  "labels_sha256": "9dba9085e232bd1efe1489d3f427c1c4583b5acd19eec5c701878a0f6c2cfa97",
+  "labels_created_utc": "2026-07-25T19:16:39.862297+00:00",
+  "wp3_config_sha16": "27c378c153546ecd",
+  "analysis_config_sha16": "a24f285e569e211e",
+  "seed_sha256": "6085fee2997a53fe15f195d907590238ec1f717adf6ac7fd4d7ed137f91892aa",
+  "n_real_null": 180,
+  "n_injections": 140,
+  "n_adverse": 280,
+  "n_multicomponent_drawn": 17
+}
