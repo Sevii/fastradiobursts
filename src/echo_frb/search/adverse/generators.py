@@ -19,6 +19,23 @@ HW = 8                                   # component half-width (bins)
 K_DM = 4.148808                          # ms, DM in pc/cm^3, freq in GHz
 
 
+def overlapping_dt_bins(tb, dt_min_ms=2.0):
+    """Largest whole-bin delay that is strictly SHORTER than the search floor.
+
+    W3b.3 / WP3 gate-memo item 3. The `overlapping` control is meant to be an
+    UNRESOLVED second image — a delay the pipeline must not be able to claim. It
+    was hardcoded at 3 bins ≈ 2.95 ms, which is INSIDE the declared Δt ≥ 2 ms
+    domain, so a "false positive" there was arguably the pipeline correctly
+    detecting a real short-delay copy (round-1 overlapping FP 60%, docs/
+    WP3_blind_validation_report.md). Deriving it from the burst's own ms/bin puts
+    the control back below the floor: 2 bins ≈ 1.97 ms at CHIME's 0.983 ms.
+    """
+    mpb = float(tb["res_time"]) * 1e3
+    if not np.isfinite(mpb) or mpb <= 0:
+        return 1
+    return int(max(1, np.floor((float(dt_min_ms) - 1e-9) / mpb)))
+
+
 def _component(std, c, hw=HW):
     comp = np.zeros_like(std)
     lo, hi = max(0, c - hw), min(std.shape[1], c + hw + 1)
@@ -41,8 +58,9 @@ def _second_image(std, tb, c, dt, mu, kind, rng, **p):
     nf, nw = std.shape
     if kind == "achromatic_copy":                         # positive control
         return mu * time_shift(T, dt)
-    if kind == "overlapping":                             # delay < component width
-        return mu * time_shift(T, max(1, p.get("dt_small", 3)))
+    if kind == "overlapping":                             # UNRESOLVED echo: dt < dt_min
+        return mu * time_shift(T, overlapping_dt_bins(tb, p.get("dt_min_ms", 2.0))
+                               if p.get("dt_small") is None else max(1, p["dt_small"]))
     if kind == "drift":                                   # chromatic freq offset
         return mu * np.roll(time_shift(T, dt), p.get("drift_channels", 600), axis=0)
     if kind == "scintillation":                           # freq-dependent amplitude
