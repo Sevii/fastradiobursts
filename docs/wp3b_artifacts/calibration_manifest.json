@@ -1,0 +1,72 @@
+{
+  "conditioning": {
+    "strata": [
+      "n_proposals",
+      "peak_snr"
+    ],
+    "n_proposals_bins": [
+      1,
+      2,
+      4,
+      7,
+      11
+    ],
+    "peak_snr_bins": [
+      0,
+      10,
+      20,
+      50,
+      Infinity
+    ],
+    "min_stratum_n": 200,
+    "min_cell_resolution_factor": 4.0
+  },
+  "tail": {
+    "model": "gpd",
+    "threshold_quantile": 0.9,
+    "min_exceedances": 30,
+    "report_empirical_fraction": true
+  },
+  "families": [
+    "adverse_chromatic_echo",
+    "adverse_differential_dm",
+    "adverse_differential_scattering",
+    "adverse_drift",
+    "adverse_overlapping",
+    "adverse_rfi_remnant",
+    "adverse_scintillation",
+    "real",
+    "real_multicomponent",
+    "surrogate_phase_randomization",
+    "surrogate_tf_permutation"
+  ],
+  "n_cells": 75,
+  "min_resolvable_alpha": 0.022857,
+  "min_resolvable_alpha_cell": "('real_multicomponent', 'all', 174)",
+  "created_utc": "2026-07-25T18:15:59.046702+00:00",
+  "cells_sha256": "43a9433192a01f9d544b208e0ecf8720acd510230eb8124280c1c166ad4ecb9e",
+  "values_sha256": "fc33565c3b4ac873b2df3cc85b563141e6f5825b667562bbd38e525f3ead8c83",
+  "source_ensemble": "null_ensemble_development.parquet",
+  "source_ensemble_sha256": "46f0930cac365e468e68f4237c1f25024458bd6a17d9c2f619e53260f0fe9ca1",
+  "analysis_version": "wp2-frozen-v2",
+  "analysis_config": "wp2_analysis_config_v2.yaml",
+  "analysis_config_sha16": "a24f285e569e211e",
+  "alpha": 0.05,
+  "excluded_families": {
+    "surrogate_block_bootstrap": "resamples time blocks with replacement -> manufactures exact copies; median per-band delay spread of its dev passers is exactly 0"
+  },
+  "margin_scales": {
+    "log10_delta_chi2": 0.455785,
+    "ncc": 0.200372,
+    "reduced_chi2": 0.197079,
+    "delay_spread_bins": 0.754092,
+    "mag_rel_spread": 0.402305,
+    "spectral_mag_reduced": 0.788701,
+    "residual_reduced_chi2": 0.404401,
+    "n_pass_vote": 1.0,
+    "leave_band_out_min_frac": 0.15849,
+    "resolution_ncc_spread": 0.078004,
+    "window_ncc_spread": 0.043545
+  },
+  "n_realizations": 26962
+}

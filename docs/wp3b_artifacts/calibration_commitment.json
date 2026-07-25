@@ -1,0 +1,12 @@
+{
+  "calibration_dir": "calibration_v2",
+  "manifest_sha256": "070b1900b4ce05796736cdfa0162ea29fc43b621bcef5e8d11a0fe135ce876ce",
+  "cells_sha256": "43a9433192a01f9d544b208e0ecf8720acd510230eb8124280c1c166ad4ecb9e",
+  "values_sha256": "fc33565c3b4ac873b2df3cc85b563141e6f5825b667562bbd38e525f3ead8c83",
+  "analysis_config_sha16": "a24f285e569e211e",
+  "alpha": 0.05,
+  "n_cells": 75,
+  "n_realizations": 26962,
+  "min_resolvable_alpha": 0.022857,
+  "committed_utc": "2026-07-25T18:15:59.047024+00:00"
+}
