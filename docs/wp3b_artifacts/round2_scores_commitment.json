@@ -1,0 +1,11 @@
+{
+  "n_scored": 600,
+  "n_candidates": 33,
+  "scores_sha256": "8e472a45387301b1e328994891bf715c46bf34fd09f67fbb343465e78818d627",
+  "scores_created_utc": "2026-07-25T19:59:16.439379+00:00",
+  "analysis_config_sha16": "a24f285e569e211e",
+  "wp3_config_sha16": "27c378c153546ecd",
+  "analysis_version": "wp2-frozen-v2",
+  "alpha": 0.05,
+  "calibration_manifest_sha256": "070b1900b4ce05796736cdfa0162ea29fc43b621bcef5e8d11a0fe135ce876ce"
+}
