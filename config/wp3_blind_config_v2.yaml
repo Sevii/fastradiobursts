@@ -1,0 +1,117 @@
+# WP3 blind-injection HARNESS configuration — ROUND 2 (`wp3-blind-v2`).
+#
+# Round 1 (`wp3-blind-v1`, pool 0) FAILED G2: the frozen v1 pipeline calibrated
+# per WINDOW while the search reports a per-BURST maximum over ~8 proposals, so the
+# adverse imitators passed at 25-70% (docs/WP3_gate_memo.md). Round 2 tests the
+# revised analysis `wp2-frozen-v2`, which prices that multiplicity.
+#
+# TARGETS SET (PI decisions 1-3, 2026-07-25); hashes PINNED. What remains before
+# W3b.8 is the PI's signature line in docs/WP3b_preregistration_addendum.md and a
+# git commit of this file, the analysis config, and the calibration commitment.
+version: 1
+wp3_version: "wp3-blind-v2"
+frozen_date: "2026-07-25"
+
+# --- the pinned frozen analysis pipeline (must not drift) -------------------
+frozen:
+  analysis_config: "config/wp2_analysis_config_v2.yaml"
+  analysis_version: "wp2-frozen-v2"
+  # Pinned from the file bytes AFTER `frozen_date` landed — pinning before the
+  # config settles is how the v1 docs ended up quoting a stale `e614642f` when the
+  # truth was `3712e96faa969fcc`. Any edit to the analysis config now breaks this
+  # assertion, which is the point.
+  analysis_config_sha16: "a24f285e569e211e"
+  # The calibration decides candidacy, so it is part of the freeze. The evaluator
+  # asserts the artifact still hashes to its commitment before scoring anything,
+  # and reconstructs it rather than refitting.
+  calibration_dir: "~/frb_catalog2_prep/wp3b/calibration_v2"
+  calibration_manifest_sha256: "070b1900b4ce05796736cdfa0162ea29fc43b621bcef5e8d11a0fe135ce876ce"
+
+# --- blind-round pool -------------------------------------------------------
+# Pool 0 is BURNED (round 1). Pool 1 is the last source-disjoint draw the catalog
+# supports: 359 sources / 362 bursts / 17 multi-component. A 2nd failure means
+# redesign at the methodology level, not another draw (§8.1, §11).
+pools:
+  k: 2
+  round1_pool: 0
+  round: 2                            # -> pool 1
+  salt: "echo-frb-wp3-blind-v1"       # UNCHANGED: repartitioning would remix burned sources
+  split_source: "test"
+
+# --- hidden mixture recipe — RESIZED FOR POOL 1 -----------------------------
+# Round 1's recipe (300/300/40 = 640 distinct bursts) does NOT fit pool 1's 362.
+# Run against pool 1 it silently yielded 62 injection hosts and ZERO adverse hosts
+# — deleting the class that failed round 1. The controller now raises instead
+# (W3b.7-D); this recipe is verified to fit exactly, at 360 of 362 bursts.
+mixture:
+  n_injections: 140
+  injection_dt_bins: [3, 4, 5, 6, 8, 10, 13, 17, 22, 30, 40]   # = frozen grid
+  injection_mu: [0.1, 0.2, 0.3, 0.4, 0.5, 0.7, 0.9]            # = frozen grid
+  injection_mu_weights: [0.20, 0.20, 0.18, 0.15, 0.12, 0.09, 0.06]
+  n_real_null: 180                    # all 17 multi-component + 163 single
+  real_null_prioritize_multicomponent: true
+  adverse_kinds: [drift, differential_dm, differential_scattering, chromatic_echo,
+                  scintillation, overlapping, rfi_remnant]
+  n_per_adverse_kind: 40              # 7 * 40 = 280 items from 40 hosts
+  adverse_mu: 0.5                     # fixed, as in round 1, for comparability
+
+# --- PREDETERMINED gate targets --------------------------------------------
+gate:
+  g1_efficiency:
+    # Regenerated under v2 (W3b.7-C): the dev ensemble's injection family scored
+    # by the committed calibration, NOT a v1 prediction.
+    predicted_surface: "wp3b_predicted_efficiency.parquet"
+    marginal_abs_tol: 0.07
+    require_ci_overlap: true
+    # W3b.7-E: cells now agree by a TWO-SAMPLE Wilson CI-OVERLAP test. Round 1's
+    # asymmetric version read 0.21 while the underlying agreement was fine
+    # (obs 0.457 vs pred 0.474) — gate-memo item 2.
+    surface_cell_coverage_min: 0.90
+    surface_signed_bias_max: 0.05
+    min_cell_n: 5
+    # eff(mu) is NOT required monotonic: the end-to-end criterion is stricter near
+    # mu->1 (equal-brightness copies). Reported as a diagnostic, not gated.
+
+  g2_false_positive:                  # gate = observed POINT ESTIMATE <= target
+    # PI DECISION 2 (2026-07-25): gate on the POINT ESTIMATE, CI reported as
+    # resolution. At n=40 the 95% Wilson UPPER bound is ~8.8% even with ZERO false
+    # positives, so gating on the interval would make a <=1% target unattainable by
+    # construction — a perfect 0-for-40 result would fail. Not a stricter gate, a
+    # broken one. Round 1 reached the same conclusion at the same n.
+    gate_on: "point_estimate"
+    real: 0.01                        # n=180 -> 1 FP = 0.0056 passes; dry run 0.0024
+
+    # PI DECISION 3 (2026-07-25): deterministic target RELAXED 0.01 -> 0.025.
+    # At n=40 the achievable rates are 0, 0.025, 0.05, ...; a 0.01 target is
+    # therefore ZERO TOLERANCE, and across the five deterministic kinds the chance
+    # of tripping it on sampling noise alone — with an analysis behaving exactly as
+    # validated — is ~33% (overlapping contributes ~24% by itself at its validated
+    # 0.0068). Spending the last sealed pool on that is a bad trade. 0.025 = "at
+    # most one of forty", the tightest statement n=40 can actually express, and it
+    # keeps the class at effectively zero tolerance.
+    deterministic: 0.025              # dry run max 0.0068 (overlapping)
+    deterministic_kinds: [drift, differential_dm, chromatic_echo, rfi_remnant,
+                          overlapping]
+    differential_scattering: 0.10     # dry run: 0.0102
+
+    # PI DECISION 1 (2026-07-25): scintillation is GATED at <= 0.10, promoted from
+    # round 1's monitored <=0.45. Validation gives 0.0388 [0.0280, 0.0503], so the
+    # expected count at n=40 is ~1.6 and P(>4 of 40 | true rate 0.039) ~ 2%. A 0.05
+    # target would instead fail ~20% of the time on Poisson noise alone. §11's
+    # caveat stands: this BOUNDS the plasma false positive, it does not claim H-P
+    # is excluded.
+    scintillation_gated: true
+    scintillation: 0.10
+    scintillation_escalate: 0.20      # gross excess -> escalate to the PI (§11)
+
+    # REPORT-ONLY: 17 multi-component bursts cannot resolve a 1% rate. Reported
+    # with its interval; gating on it would be theatre.
+    real_multicomponent_monitored: 0.05
+
+# --- data locations (popos; Tier C/D, regenerable) -------------------------
+paths:
+  wp3_dir: "~/frb_catalog2_prep/wp3"
+  wp3b_dir: "~/frb_catalog2_prep/wp3b"
+  wp2_dir: "~/frb_catalog2_prep/wp2"
+  manifests: "~/frb_catalog2_prep/manifests"
+  tier_b_dir: "~/frb_catalog2_prep/tier_b_standardized"

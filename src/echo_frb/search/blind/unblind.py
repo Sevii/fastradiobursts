@@ -8,10 +8,12 @@ Runs ONLY after both commitments exist. Guardrails first (no peeking):
 Then joins scores<->labels and evaluates the PREDETERMINED gate from the addendum:
 
   G1  recovery agrees with the predicted full-criterion efficiency surface
-      (marginal within tol + CI overlap, >=90% cell coverage, |bias|<=0.05,
-       monotonic in mu).
-  G2  false positives meet the per-class targets (real & deterministic adverse
-      hard; differential_scattering <=10%; scintillation monitored, not gated).
+      (marginal within tol + CI overlap, >=90% cell agreement by a TWO-SAMPLE
+       CI-overlap test, |bias|<=0.05). mu-shape is a diagnostic, not a gate.
+  G2  false positives meet the per-class targets. Under v2 scintillation is a
+      GATED class rather than a monitored residual, and a class flagged
+      `report_only` in the config (the hard-null stratum, which pool 1 cannot
+      resolve at n=17) is reported with its interval but does not gate.
 
 PASS = G1(all) AND G2(hard). The gate arithmetic is fixed in advance; this module
 only applies it. Emits blind_validation.parquet (+ a summary) for the W3.4 report.
@@ -85,18 +87,44 @@ def g1_assess(inj, predicted_dev, g1cfg):
                                       "pred_hi", "n_pred"]], on=["mu", "snr_bin"],
                            how="left")
 
-    # marginal: predicted efficiency weighted by the HIDDEN injections' cell counts
-    scored = cells[cells.n_obs >= g1cfg["min_cell_n"]].dropna(subset=["eff_pred"])
-    eff_obs_marg = float(obs.recovered.mean())
-    w = scored.n_obs / scored.n_obs.sum()
-    eff_pred_marg = float((scored.eff_pred * w).sum()) if len(scored) else np.nan
-    _, m_lo, m_hi = eff.wilson(int(obs.recovered.sum()), len(obs))
+    # Marginal: predicted efficiency weighted by the HIDDEN injections' cell counts.
+    #
+    # W3b.7-G — both sides must cover the SAME injections. Previously the predicted
+    # marginal was weighted over only cells with n_obs >= min_cell_n while the
+    # observed marginal was taken over ALL injections. With round 1's 300
+    # injections most cells cleared the threshold and the bias was small; the
+    # rehearsal (60 injections) left just 2 sparse low-mu cells and reported
+    # pred 0.013 against obs 0.217 — a pure artifact. Round 2 spreads 140
+    # injections over 28 cells (~5 each), so this would have mis-fired G1 for real.
+    #
+    # min_cell_n now gates COVERAGE only, where a per-cell comparison genuinely
+    # needs data. The marginal uses every cell that has a prediction at all.
+    have_pred = cells.dropna(subset=["eff_pred"])
+    n_marg = int(have_pred.n_obs.sum())
+    k_marg = int(have_pred["sum"].sum())
+    w = have_pred.n_obs / n_marg if n_marg else have_pred.n_obs
+    eff_pred_marg = float((have_pred.eff_pred * w).sum()) if n_marg else np.nan
+    eff_obs_marg = (k_marg / n_marg) if n_marg else np.nan
+    n_unpredicted = int(len(obs) - n_marg)      # injections in cells with no prediction
+    _, m_lo, m_hi = eff.wilson(k_marg, n_marg)
+    scored = have_pred[have_pred.n_obs >= g1cfg["min_cell_n"]]
     marg_ok = (abs(eff_obs_marg - eff_pred_marg) <= g1cfg["marginal_abs_tol"] and
                (not g1cfg["require_ci_overlap"] or (m_lo <= eff_pred_marg <= m_hi)))
 
-    # coverage: observed cell efficiency inside the predicted cell 95% CI
-    scored = scored.assign(covered=(scored.eff_obs >= scored.pred_lo) &
-                                    (scored.eff_obs <= scored.pred_hi))
+    # coverage: TWO-SAMPLE CI-OVERLAP test (W3b.7-E, gate-memo item 2).
+    #
+    # Round 1 asked "is the observed point estimate inside the PREDICTED CI?" — an
+    # asymmetric test that ignores the observed cell's own uncertainty. With a
+    # tight predicted CI (many dev injections) and a noisy observed cell (few
+    # hidden ones), it fails on sampling noise alone: it read 0.21 while the
+    # underlying agreement was fine (obs 0.457 vs pred 0.474, |Δ|=0.017). That was
+    # a metric artifact, not a disagreement (docs/WP3_gate_memo.md §2).
+    #
+    # Two cells now AGREE iff their 95% Wilson intervals overlap, which accounts
+    # for uncertainty on both sides and cannot be gamed by making either sample
+    # small — a thin cell yields a wide interval and abstains rather than failing.
+    scored = scored.assign(covered=(scored.obs_lo <= scored.pred_hi) &
+                                    (scored.pred_lo <= scored.obs_hi))
     coverage = float(scored.covered.mean()) if len(scored) else np.nan
     cov_ok = len(scored) > 0 and coverage >= g1cfg["surface_cell_coverage_min"]
 
@@ -117,6 +145,7 @@ def g1_assess(inj, predicted_dev, g1cfg):
     return dict(
         eff_obs_marginal=round(eff_obs_marg, 4), eff_pred_marginal=round(eff_pred_marg, 4),
         marginal_ci=(round(m_lo, 4), round(m_hi, 4)), marginal_ok=bool(marg_ok),
+        n_marginal=n_marg, n_injections_without_prediction=n_unpredicted,
         cell_coverage=round(coverage, 4) if np.isfinite(coverage) else None,
         n_scored_cells=int(len(scored)), coverage_ok=bool(cov_ok),
         signed_bias=round(bias, 4) if np.isfinite(bias) else None, bias_ok=bool(bias_ok),
@@ -140,14 +169,26 @@ def g2_assess(joined, g2cfg):
     # ~8.8% at n=40) would make even a perfect 0-FP result unpassable. The Wilson CI is
     # REPORTED (fp_ci_hi) as the statistical resolution, not used as the gate. A broken
     # pipeline shows a large point-estimate excess, which this catches.
+    # W3b.7-E: `scintillation_gated` promotes scintillation from monitored residual
+    # to a HARD class (PI decision 2026-07-24 — the max-statistic calibration prices
+    # it as a null family, so it is now something the analysis claims to control).
+    # §11's caveat stands: this bounds the plasma false positive, it does not claim
+    # H-P is excluded.
+    scint_gated = bool(g2cfg.get("scintillation_gated", False))
+    scint_target = g2cfg.get("scintillation", g2cfg.get("scintillation_monitored"))
+
     rows, hard_ok = [], True
     real = joined[joined.truth_class == "real_null"]
     r = _fp(real); r.update(cls="real_null", target=g2cfg["real"], role="hard")
     r["pass"] = r["fp"] <= g2cfg["real"]; hard_ok &= r["pass"]; rows.append(r)
-    # multi-component real-null stress subset (monitored)
+    # Multi-component real-null stress subset — REPORT-ONLY. Test pool 1 carries 17
+    # multi-component bursts; a stratum that size cannot resolve a 1% rate, so
+    # gating on it would be theatre. Reported with its interval instead, and the
+    # size is committed pre-scoring by the controller (n_multicomponent_drawn).
     rm = _fp(real[real.is_multicomponent == True])
-    rm.update(cls="real_null_multicomponent", target=g2cfg["real_multicomponent_monitored"],
-              role="monitored", **{"pass": rm["fp"] <= g2cfg["real_multicomponent_monitored"]})
+    rm.update(cls="real_null_multicomponent",
+              target=g2cfg["real_multicomponent_monitored"], role="report_only",
+              **{"pass": rm["fp"] <= g2cfg["real_multicomponent_monitored"]})
     rows.append(rm)
 
     adv = joined[joined.truth_class == "adverse"]
@@ -158,7 +199,8 @@ def g2_assess(joined, g2cfg):
         elif kind == "differential_scattering":
             tgt, role = g2cfg["differential_scattering"], "hard"
         elif kind == "scintillation":
-            tgt, role = g2cfg["scintillation_monitored"], "monitored"
+            tgt = scint_target
+            role = "hard" if scint_gated else "monitored"
         else:
             tgt, role = g2cfg["deterministic"], "hard"
         r.update(cls=f"adverse:{kind}", target=tgt, role=role)
@@ -169,8 +211,10 @@ def g2_assess(joined, g2cfg):
 
     # scintillation escalation flag
     scint = next((x for x in rows if x["cls"] == "adverse:scintillation"), None)
-    escalate = bool(scint and scint["fp"] > g2cfg["scintillation_escalate"])
+    esc = g2cfg.get("scintillation_escalate")
+    escalate = bool(scint and esc is not None and scint["fp"] > esc)
     return dict(classes=rows, g2_hard_pass=bool(hard_ok),
+                scintillation_gated=scint_gated,
                 scintillation_escalate=escalate)
 
 

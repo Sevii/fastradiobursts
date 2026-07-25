@@ -40,14 +40,25 @@ def load_wp3_config(path: str) -> dict:
 
 
 def assert_freeze_contract(wp3_cfg: dict, repo_root: str) -> str:
-    """Assert the frozen analysis pipeline is byte-identical to what WP2 froze.
+    """Assert the frozen analysis pipeline is byte-identical to what was frozen.
 
     Returns the verified analysis-config hash. Raises AssertionError on any drift.
+
+    W3b.7-F: an UNSIGNED harness (`analysis_config_sha16: null`) is refused rather
+    than waved through. A null pin is not "no constraint" — it means the analysis
+    config is still moving, and a blind round drawn against a moving pipeline is
+    not a blind round.
     """
     fr = wp3_cfg["frozen"]
     ana_path = os.path.join(repo_root, fr["analysis_config"])
     got = config_sha16(ana_path)
     exp = fr["analysis_config_sha16"]
+    assert exp is not None, (
+        f"HARNESS NOT SIGNED: {fr['analysis_config']} is unpinned "
+        f"(analysis_config_sha16 is null; it currently hashes to {got}). The "
+        f"analysis config must be frozen — `frozen_date` set, alpha committed, PI "
+        f"signature on the preregistration addendum — before a blind round may be "
+        f"drawn or scored (docs/WP3b_W3b.7_plan.md §F).")
     assert got == exp, (
         f"FROZEN ANALYSIS CONFIG DRIFTED: {fr['analysis_config']} hashes {got}, "
         f"expected {exp} ({fr['analysis_version']}). WP3 must run the UNMODIFIED "

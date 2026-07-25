@@ -66,6 +66,25 @@ def materialize(src_path, dst_path, item_id, new_std=None):
         fout.attrs["tns_name"] = item_id            # opaque label; real identity sealed
 
 
+def _require(got, want, role, pool_bursts, detail=""):
+    """A blind round drawn from a silently truncated mixture is worse than none.
+
+    W3b.7-D: the role selection below is pure slicing, so a pool too small for the
+    recipe used to yield a short mixture with no error at all. Measured against
+    test pool 1 (362 bursts), the round-1 recipe produces 62 injection hosts
+    instead of 300 and ZERO adverse hosts — deleting the very class that failed
+    round 1 — and the round would have looked like it ran fine.
+    """
+    if len(got) >= want:
+        return got
+    raise ValueError(
+        f"MIXTURE DOES NOT FIT THE POOL: role '{role}' wants {want} bursts but only "
+        f"{len(got)} are available (pool has {len(pool_bursts)} bursts total"
+        f"{'; ' + detail if detail else ''}). Roles are disjoint, so the recipe must "
+        f"fit the pool. Resize `mixture` in the WP3 harness config — do NOT let the "
+        f"round run short (docs/WP3b_W3b.7_plan.md §D).")
+
+
 def _select_roles(pool_bursts, man, cfg, rng):
     """Disjoint real_null / injection-host / adverse-host burst sets from the pool."""
     mx = cfg["mixture"]
@@ -82,16 +101,22 @@ def _select_roles(pool_bursts, man, cfg, rng):
     n_real = mx["n_real_null"]
     real = multi[:n_real]
     real += single[:max(0, n_real - len(real))]
+    _require(real, n_real, "real_null", pool_bursts,
+             f"{len(multi)} multi-component, {len(single)} single-component")
     used = set(real)
     single_left = [t for t in single if t not in used]
 
     n_inj_hosts = mx["n_injections"]                # one host per injection item
     inj_hosts = single_left[:n_inj_hosts]
+    _require(inj_hosts, n_inj_hosts, "injection hosts", pool_bursts,
+             f"{len(single_left)} single-component bursts left after real_null")
     used |= set(inj_hosts)
     single_left = [t for t in single_left if t not in used]
 
     n_adv_hosts = mx["n_per_adverse_kind"]          # reused across the 7 kinds
     adv_hosts = single_left[:n_adv_hosts]
+    _require(adv_hosts, n_adv_hosts, "adverse hosts", pool_bursts,
+             f"{len(single_left)} single-component bursts left after injections")
 
     return feat.set_index("tns_name"), real, inj_hosts, adv_hosts
 
@@ -145,8 +170,13 @@ def build(cfg, ana_cfg, pool_bursts, man, tbdir, seed):
                    dt_bins=(int(dt) if np.isfinite(dt) else -1),
                    mu=(float(mu) if np.isfinite(mu) else np.nan), **host_feats(host))
         labels.append(lab)
+    # the hard-null stratum's size is stated PRE-scoring, not discovered after:
+    # test pool 1 holds only 17 multi-component bursts, which cannot resolve a 1%
+    # false-positive rate. Recorded in the commitment so the round-2 report says so.
+    n_multi_real = int(sum(not bool(feat.loc[h].single) for h in real))
     return items, labels, {"n_real": len(real), "n_inj": len(injections),
-                           "n_adv": len(adv_kinds) * len(adv_hosts)}
+                           "n_adv": len(adv_kinds) * len(adv_hosts),
+                           "n_multicomponent_drawn": n_multi_real}
 
 
 def render(items, labels, tbdir, out_items_dir):
@@ -235,6 +265,10 @@ def main():
         wp3_config_sha16=cfg["_config_hash"],
         analysis_config_sha16=ana_hash,
         seed_sha256=hashlib.sha256(str(a.seed).encode()).hexdigest(),
+        n_real_null=counts["n_real"], n_injections=counts["n_inj"],
+        n_adverse=counts["n_adv"],
+        # pre-scoring statement of the hard-null stratum size (W3b.7-D)
+        n_multicomponent_drawn=counts["n_multicomponent_drawn"],
     )
     commit_path = os.path.join(outdir, "hidden_commitment.json")
     json.dump(commitment, open(commit_path, "w"), indent=2)

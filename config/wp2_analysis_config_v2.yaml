@@ -22,7 +22,7 @@
 # (W3b.6) and MUST be committed before the round-2 controller draws from pool 1.
 version: 3
 analysis_version: "wp2-frozen-v2"
-frozen_date: null                    # set at W3b.7, when alpha lands and this is hashed
+frozen_date: "2026-07-25"            # FROZEN. Any edit below forfeits this calibration.
 supersedes:
   analysis_version: "wp2-frozen-v1"
   analysis_config_sha16: "3712e96faa969fcc"

@@ -47,7 +47,7 @@ def test_nonfinite_covariate_lands_in_the_first_bin():
 # --- the empirical estimator and its floor -----------------------------------
 
 def test_empirical_pvalue_uses_the_conservative_estimator():
-    c = cal.Cell("f", "all", np.arange(100.0), CFG["margin"]["tail"], "family")
+    c = cal.Cell.fit("f", "all", np.arange(100.0), CFG["margin"]["tail"], "family")
     p, k = c.p_empirical(94.5)                    # 95..99 exceed -> k = 5
     assert k == 5
     assert p == pytest.approx(6 / 101)
@@ -161,6 +161,94 @@ def test_summary_reports_the_tail_provenance():
     assert {"family", "stratum", "n", "gpd_u", "n_exceedances",
             "empirical_floor"} <= set(s.columns)
     assert (s.empirical_floor > 0).all()
+
+
+# --- persistence: a committed calibration must be exactly what was committed --
+
+def _mixed_ensemble():
+    """Several families and strata, sized so some cells fit and some pool up."""
+    parts = []
+    for fam, loc in [("real", 0.0), ("adverse_scintillation", 1.5)]:
+        for npr, snr in [(1, 5.0), (5, 30.0), (9, 100.0)]:
+            parts.append(_ensemble(fam, 400, loc=loc, n_proposals=npr, snr=snr,
+                                   seed=hash((fam, npr)) % 1000))
+    parts.append(_ensemble("real", 30, n_proposals=3, snr=15.0, seed=99))  # thin
+    return pd.concat(parts, ignore_index=True)
+
+
+def test_save_load_round_trip_preserves_every_cell(tmp_path):
+    c = cal.Calibration.fit(_mixed_ensemble(), CFG)
+    c.save(tmp_path)
+    back = cal.load_calibration(tmp_path)
+    assert set(back.cells) == set(c.cells)
+    for k, cell in c.cells.items():
+        b = back.cells[k]
+        assert b.n == cell.n and b.level == cell.level
+        assert np.array_equal(b.M, cell.M)
+        for attr in ("u", "shape", "scale"):
+            x, y = getattr(b, attr), getattr(cell, attr)
+            assert (x == y) or (np.isnan(x) and np.isnan(y))
+        assert b.n_exc == cell.n_exc
+
+
+def test_loaded_calibration_gives_identical_pvalues(tmp_path):
+    """The decision must not shift by a hair across a save/load boundary."""
+    c = cal.Calibration.fit(_mixed_ensemble(), CFG)
+    c.save(tmp_path)
+    back = cal.load_calibration(tmp_path)
+    for npr, snr in [(1, 5.0), (5, 30.0), (9, 100.0), (3, 15.0)]:
+        for m in np.linspace(-2.0, 6.0, 33):        # spans both sides of every u
+            Z = {"n_proposals": npr, "peak_snr": snr}
+            assert back.pvalues(m, Z)["p_robust"] == c.pvalues(m, Z)["p_robust"]
+
+
+def test_load_never_refits_the_tail(tmp_path, monkeypatch):
+    """Stored GPD parameters are used as written — a code change cannot move them."""
+    c = cal.Calibration.fit(_mixed_ensemble(), CFG)
+    c.save(tmp_path)
+    monkeypatch.setattr(cal.genpareto, "fit",
+                        lambda *a, **k: pytest.fail("load() refitted the GPD"))
+    back = cal.load_calibration(tmp_path)
+    assert any(np.isfinite(cell.u) for cell in back.cells.values())
+
+
+def test_load_rejects_a_tampered_artifact(tmp_path):
+    c = cal.Calibration.fit(_mixed_ensemble(), CFG)
+    c.save(tmp_path)
+    v = pd.read_parquet(tmp_path / cal.VALUES_FILE)
+    v.loc[0, "M"] = 999.0
+    v.to_parquet(tmp_path / cal.VALUES_FILE, index=False)
+    with pytest.raises(AssertionError, match="CALIBRATION TAMPERED"):
+        cal.load_calibration(tmp_path)
+
+
+def test_manifest_records_provenance_and_the_resolvable_bound(tmp_path):
+    c = cal.Calibration.fit(_mixed_ensemble(), CFG,
+                            provenance=dict(source_ensemble="x.parquet",
+                                            excluded_families={"bad": "why"}))
+    man = c.save(tmp_path)
+    assert man["source_ensemble"] == "x.parquet"
+    assert man["excluded_families"] == {"bad": "why"}
+    assert man["min_resolvable_alpha"] > 0
+    assert man["cells_sha256"] and man["values_sha256"]
+    a_min, _ = c.min_resolvable_alpha(
+        c.cond.get("min_cell_resolution_factor", 4.0))
+    assert man["min_resolvable_alpha"] == pytest.approx(a_min, abs=1e-6)
+
+
+def test_loaded_calibration_is_marked_frozen(tmp_path):
+    c = cal.Calibration.fit(_mixed_ensemble(), CFG)
+    assert not c.frozen
+    c.save(tmp_path)
+    assert cal.load_calibration(tmp_path).frozen
+
+
+def test_min_resolvable_alpha_names_the_thinnest_cell():
+    c = cal.Calibration.fit(_mixed_ensemble(), CFG)
+    a_min, worst = c.min_resolvable_alpha(factor=4.0)
+    thinnest = min(c.cells.values(), key=lambda x: x.n)
+    assert worst[2] == thinnest.n
+    assert a_min == pytest.approx(4.0 / (thinnest.n + 1.0))
 
 
 # --- cluster bootstrap -------------------------------------------------------

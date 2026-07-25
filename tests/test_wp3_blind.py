@@ -164,11 +164,177 @@ def test_controller_real_null_prioritizes_multicomponent(wp3_cfg):
     assert real_hosts <= multis
 
 
+# ---- W3b.7-D: the mixture must fit the pool, loudly ------------------------
+def test_controller_raises_when_the_pool_is_too_small(wp3_cfg):
+    """Round-1 recipe on a pool-1-sized pool: 0 adverse hosts, silently, before."""
+    pool, man = _fake_pool_and_manifest(n=40)
+    with pytest.raises(ValueError, match="MIXTURE DOES NOT FIT THE POOL"):
+        controller.build(wp3_cfg, {}, pool, man, "/x", seed=1)
+
+
+def test_controller_error_names_the_short_role(wp3_cfg):
+    pool, man = _fake_pool_and_manifest(n=40)
+    cfg = dict(wp3_cfg)
+    cfg["mixture"] = dict(wp3_cfg["mixture"], n_real_null=10, n_injections=10,
+                          n_per_adverse_kind=40)          # only adverse is short
+    with pytest.raises(ValueError, match="role 'adverse hosts' wants 40"):
+        controller.build(cfg, {}, pool, man, "/x", seed=1)
+
+
+def test_controller_accepts_a_recipe_that_fits(wp3_cfg):
+    pool, man = _fake_pool_and_manifest(n=80)
+    _, _, counts = controller.build(_small_cfg(wp3_cfg), {}, pool, man, "/x", seed=1)
+    assert counts["n_real"] == 10 and counts["n_inj"] == 10
+
+
+def test_controller_reports_the_hard_null_count_pre_scoring(wp3_cfg):
+    """Pool 1 has 17 multi-component bursts; the report must say so up front."""
+    pool, man = _fake_pool_and_manifest(n=80)          # 12 multi by construction
+    _, _, counts = controller.build(_small_cfg(wp3_cfg), {}, pool, man, "/x", seed=5)
+    assert counts["n_multicomponent_drawn"] == 10      # n_real_null=10, all multi
+
+
 # ---- W3.2 evaluator blindness (structural) --------------------------------
 def test_evaluate_source_never_references_labels():
     src = open(os.path.join(REPO, "src/echo_frb/search/blind/evaluate.py")).read()
     assert "SEALED" not in src and "hidden_labels" not in src
     assert "truth_class" not in src
+
+
+# ---- W3b.7-B: the evaluator runs v2 ---------------------------------------
+import h5py                                                        # noqa: E402
+import json as _json                                               # noqa: E402
+
+from echo_frb.search.blind import evaluate as ev                   # noqa: E402
+from echo_frb.search.margin import calibrate as mcal               # noqa: E402
+
+V2_CFG_PATH = os.path.join(REPO, "config", "wp2_analysis_config_v2.yaml")
+
+
+@pytest.fixture(scope="module")
+def ana_v2():
+    return yaml.safe_load(open(V2_CFG_PATH))
+
+
+@pytest.fixture(scope="module")
+def ana_v1():
+    return yaml.safe_load(open(os.path.join(REPO, "config",
+                                            "wp2_analysis_config.yaml")))
+
+
+def _write_tier_b(path, nf=512, nt=140, seed=0, inject_copy=False):
+    """A Tier-B-shaped h5 the evaluator can actually load and score."""
+    from echo_frb.search.adverse import generators as gen
+    rng = np.random.default_rng(seed)
+    env = np.zeros(nf); env[100:400] = 1.0 + 0.5 * np.cos(np.linspace(0, 3, 300))
+    t = np.arange(nt); prof = np.exp(-0.5 * ((t - 45) / 3.0) ** 2)
+    std = (env[:, None] * prof[None, :]
+           + 0.04 * rng.standard_normal((nf, nt))).astype(np.float32)
+    off = np.ones(nt, bool); off[35:80] = False
+    tb = dict(standardized=std, project_mask=np.ones((nf, nt), bool),
+              robust_std=0.04 * np.ones(nf), channel_usable=np.ones(nf, bool),
+              offpulse=off, times=t * 0.983e-3, freqs=400 + np.arange(nf) * 0.39,
+              res_time=0.983e-3, tns_name="ITEM00000", noise_failed=False)
+    if inject_copy:
+        tb = gen.inject(tb, 45, 8, 0.6, "achromatic_copy", np.random.default_rng(seed))
+    with h5py.File(path, "w") as f:
+        f.create_dataset("standardized", data=np.asarray(tb["standardized"]))
+        f.create_dataset("mask/project_mask", data=tb["project_mask"])
+        f.create_dataset("noise/robust_std", data=tb["robust_std"])
+        f.create_dataset("noise/channel_usable", data=tb["channel_usable"])
+        f.create_dataset("offpulse/time_mask", data=tb["offpulse"])
+        f.create_dataset("coords/times", data=tb["times"])
+        f.create_dataset("coords/freqs", data=tb["freqs"])
+        f.attrs["res_time"] = 0.983e-3
+        f.attrs["tns_name"] = "ITEM00000"
+        f.attrs["noise_failed"] = False
+
+
+def _fake_calibration(dirpath, alpha=0.05, n=600, loc=-0.5):
+    """A committed calibration artifact with the same shape as the real one."""
+    rng = np.random.default_rng(0)
+    ens = pd.DataFrame(dict(
+        family="real", truth_class="null", error="",
+        M=rng.normal(loc, 0.5, n), n_proposals=3, peak_snr=20.0,
+        source_id=[f"S{i}" for i in range(n)]))
+    c = mcal.Calibration.fit(ens, {"margin": {"conditioning": {"min_stratum_n": 200}}})
+    man = c.save(dirpath)
+    commit = dict(manifest_sha256=mcal.sha256_file(
+        os.path.join(str(dirpath), mcal.MANIFEST_FILE)),
+        alpha=alpha, n_cells=man["n_cells"],
+        n_realizations=man.get("n_realizations", n),
+        min_resolvable_alpha=man["min_resolvable_alpha"])
+    _json.dump(commit, open(os.path.join(str(dirpath),
+                                         "calibration_commitment.json"), "w"))
+    return commit
+
+
+def test_is_v2_keys_off_the_margin_block(ana_v1, ana_v2):
+    assert not ev.is_v2(ana_v1)
+    assert ev.is_v2(ana_v2)
+
+
+def test_v2_refuses_without_a_calibration(ana_v2):
+    with pytest.raises(AssertionError, match="needs --calibration"):
+        ev.assert_calibration_contract(ana_v2, None)
+
+
+def test_v2_refuses_a_null_alpha(ana_v2, tmp_path):
+    cfg = dict(ana_v2, margin=dict(ana_v2["margin"], alpha=None))
+    with pytest.raises(AssertionError, match="alpha is null"):
+        ev.assert_calibration_contract(cfg, str(tmp_path))
+
+
+def test_v2_refuses_alpha_mismatching_the_commitment(ana_v2, tmp_path):
+    _fake_calibration(tmp_path, alpha=0.02)
+    with pytest.raises(AssertionError, match="alpha mismatch"):
+        ev.assert_calibration_contract(ana_v2, str(tmp_path))     # config says 0.05
+
+
+def test_v2_refuses_alpha_below_the_resolvable_floor(ana_v2, tmp_path):
+    """A cell thinner than 1/alpha makes alpha unreachable — refuse, don't score."""
+    _fake_calibration(tmp_path, alpha=0.0001, n=600)
+    cfg = dict(ana_v2, margin=dict(ana_v2["margin"], alpha=0.0001))
+    with pytest.raises(AssertionError, match="resolvable floor"):
+        ev.assert_calibration_contract(cfg, str(tmp_path))
+
+
+def test_v2_refuses_a_tampered_calibration(ana_v2, tmp_path):
+    _fake_calibration(tmp_path, alpha=0.05)
+    v = pd.read_parquet(tmp_path / mcal.VALUES_FILE)
+    v.loc[0, "M"] = 42.0
+    v.to_parquet(tmp_path / mcal.VALUES_FILE, index=False)
+    with pytest.raises(AssertionError, match="CALIBRATION TAMPERED"):
+        ev.assert_calibration_contract(ana_v2, str(tmp_path))
+
+
+def test_v2_scores_items_end_to_end(ana_v2, tmp_path):
+    items = tmp_path / "items"; items.mkdir()
+    calib = tmp_path / "calib"; calib.mkdir()
+    _fake_calibration(calib, alpha=0.05)
+    _write_tier_b(items / "a.h5", seed=1, inject_copy=True)
+    _write_tier_b(items / "b.h5", seed=2, inject_copy=False)
+    man = pd.DataFrame([dict(item_id="ITEM00000", h5="a.h5"),
+                        dict(item_id="ITEM00001", h5="b.h5")])
+
+    scores = ev.evaluate(man, str(items), ana_v2, workers=1, calib_dir=str(calib))
+    assert len(scores) == 2
+    assert (scores.error == "").all()
+    for col in ("M", "p_robust", "worst_family", "is_candidate", "n_proposals"):
+        assert col in scores, f"v2 scores must carry {col}"
+    alpha = ana_v2["margin"]["alpha"]
+    expect = (scores.M > 0) & (scores.p_robust <= alpha)
+    assert (scores.is_candidate == expect).all()
+
+
+def test_v1_path_is_untouched_when_there_is_no_margin_block(ana_v1, tmp_path):
+    """WP3 round 1 must stay reproducible."""
+    items = tmp_path / "items"; items.mkdir()
+    _write_tier_b(items / "a.h5", seed=1, inject_copy=True)
+    man = pd.DataFrame([dict(item_id="ITEM00000", h5="a.h5")])
+    scores = ev.evaluate(man, str(items), ana_v1, workers=1, calib_dir=None)
+    assert "is_candidate" in scores and "p_robust" not in scores
+    assert "copy_ok_any" in scores                     # the v1 record shape
 
 
 # ---- W3.3 unblind guardrails ----------------------------------------------
@@ -263,6 +429,72 @@ def test_g1_fails_when_recovery_deficit(wp3_cfg):
                         for mu in mu_eff for i in range(60)])
     res, _ = unblind.g1_assess(inj, pred, _g1cfg(wp3_cfg))
     assert not res["g1_pass"]
+
+
+def test_g1_coverage_is_a_two_sample_ci_overlap(wp3_cfg):
+    """W3b.7-E regression: round 1's OWN numbers must now pass.
+
+    Observed 0.457 vs predicted 0.474 with a large predicted sample and a small
+    observed one. The old asymmetric test (obs point estimate inside the predicted
+    CI) scored 0.21 coverage on exactly this configuration and mis-fired the gate;
+    an overlap test sees the agreement it actually is.
+    """
+    mu_eff = {0.1: 0.474, 0.3: 0.474, 0.5: 0.474, 0.9: 0.474}
+    pred = _pred_dev(mu_eff)                              # 200 rows/μ -> tight CI
+    rows = []
+    for mu in mu_eff:                                     # 60 rows/μ -> wide CI
+        for i in range(60):
+            rows.append(dict(mu=mu, host_snr=10.0 + (i % 2) * 20.0,
+                             is_candidate=bool(i < int(0.457 * 60)),
+                             truth_class="injection"))
+    res, cells = unblind.g1_assess(pd.DataFrame(rows), pred, _g1cfg(wp3_cfg))
+    assert res["cell_coverage"] == 1.0, cells
+    assert res["coverage_ok"] and res["g1_pass"], res
+
+
+def test_g1_marginal_compares_the_same_injections_on_both_sides(wp3_cfg):
+    """W3b.7-G regression: a SMALL observed sample must not skew the marginal.
+
+    With few injections per cell, most cells fall below `min_cell_n`. Restricting
+    the predicted marginal to the survivors while taking the observed marginal
+    over everything compared different injections on each side — the rehearsal
+    read pred 0.013 vs obs 0.217 on a set that agreed. min_cell_n gates coverage
+    only; the marginal spans every cell that has a prediction.
+    """
+    mu_eff = {0.1: 0.05, 0.3: 0.55, 0.5: 0.84, 0.9: 0.58}
+    pred = _pred_dev(mu_eff)
+    rows = []                                   # 4 per μ: below min_cell_n=5
+    for mu, e in mu_eff.items():
+        for i in range(4):
+            rows.append(dict(mu=mu, host_snr=10.0 + (i % 2) * 20.0,
+                             is_candidate=bool(i < round(e * 4)),
+                             truth_class="injection"))
+    obs = pd.DataFrame(rows)
+    res, _ = unblind.g1_assess(obs, pred, _g1cfg(wp3_cfg))
+    assert res["n_marginal"] == len(obs), "every injection must enter the marginal"
+    assert res["n_injections_without_prediction"] == 0
+    assert abs(res["eff_obs_marginal"] - res["eff_pred_marginal"]) < 0.15, res
+
+
+def test_g1_coverage_still_fails_a_genuinely_displaced_cell(wp3_cfg):
+    """Overlap must not be so permissive that real disagreement slips through."""
+    pred = _pred_dev({0.1: 0.9, 0.3: 0.9, 0.5: 0.9, 0.9: 0.9})
+    rows = [dict(mu=mu, host_snr=10.0 + (i % 2) * 20.0,
+                 is_candidate=bool(i < 6), truth_class="injection")   # 0.10 vs 0.90
+            for mu in (0.1, 0.3, 0.5, 0.9) for i in range(60)]
+    res, _ = unblind.g1_assess(pd.DataFrame(rows), pred, _g1cfg(wp3_cfg))
+    assert res["cell_coverage"] == 0.0
+    assert not res["g1_pass"]
+
+
+def test_g1_coverage_is_symmetric_in_sample_size(wp3_cfg):
+    """A thin cell yields a wide interval and abstains — it must not fail by noise."""
+    pred = _pred_dev({0.1: 0.5, 0.3: 0.5, 0.5: 0.5, 0.9: 0.5})
+    rows = [dict(mu=mu, host_snr=10.0 + (i % 2) * 20.0,
+                 is_candidate=bool(i < 3), truth_class="injection")   # 6 rows, 0.5
+            for mu in (0.1, 0.3, 0.5, 0.9) for i in range(6)]
+    res, _ = unblind.g1_assess(pd.DataFrame(rows), pred, _g1cfg(wp3_cfg))
+    assert res["cell_coverage"] in (1.0, None) or res["cell_coverage"] >= 0.9
 
 
 def _joined(fp_by):

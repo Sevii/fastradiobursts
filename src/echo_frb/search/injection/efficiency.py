@@ -33,8 +33,17 @@ def wilson(k, n, z=1.96):
     return p, max(0.0, centre - half), min(1.0, centre + half)
 
 
-def efficiency_by(df, by):
-    df = df.assign(recovered=recovery_flag(df))
+def efficiency_by(df, by, use_flag_column=False):
+    """Binned efficiency with Wilson CIs.
+
+    By default the recovery flag is RECOMPUTED from the copy criterion (Δχ², NCC,
+    reduced χ²) — the W2.6 behaviour, kept so the injection campaign is unchanged.
+    Pass `use_flag_column=True` when the caller's `recovered` column is the
+    decision (e.g. the v2 rule `M > 0 AND p_robust <= alpha`), which the copy
+    criterion alone cannot reproduce: silently overwriting it there reports a
+    materially higher efficiency than the analysis actually achieves.
+    """
+    df = df if use_flag_column else df.assign(recovered=recovery_flag(df))
     rows = []
     for key, g in df.groupby(by):
         k, n = int(g.recovered.sum()), len(g)

@@ -32,6 +32,11 @@ the denominator: the search really did fail to produce a candidate for them.
 """
 from __future__ import annotations
 
+import hashlib
+import json
+import os
+from datetime import datetime, timezone
+
 import numpy as np
 import pandas as pd
 
@@ -39,6 +44,10 @@ try:
     from scipy.stats import genpareto
 except ImportError:                       # calibration degrades to empirical-only
     genpareto = None
+
+VALUES_FILE = "calibration_values.parquet"
+CELLS_FILE = "calibration_cells.parquet"
+MANIFEST_FILE = "calibration_manifest.json"
 
 DEFAULT_CONDITIONING = {
     "strata": ["n_proposals", "peak_snr"],
@@ -79,28 +88,39 @@ def assign_strata(df, cfg=None):
 
 
 class Cell:
-    """One (family, stratum) null sample and its prespecified tail model."""
+    """One (family, stratum) null sample and its prespecified tail model.
+
+    `__init__` STORES parameters; `fit` estimates them. Loading a committed
+    calibration goes through `__init__` only, so no GPD is ever re-estimated at
+    scoring time — a code change cannot silently move a frozen threshold.
+    """
 
     __slots__ = ("family", "key", "M", "n", "u", "shape", "scale", "n_exc", "level")
 
-    def __init__(self, family, key, M, tail, level):
+    def __init__(self, family, key, M, level, u=np.nan, shape=np.nan,
+                 scale=np.nan, n_exc=0):
         self.family, self.key, self.level = family, key, level
         self.M = np.sort(np.asarray(M, float))[::-1]      # descending
         self.n = int(self.M.size)
-        self.u = self.shape = self.scale = np.nan
-        self.n_exc = 0
-        if self.n and genpareto is not None and tail.get("model") == "gpd":
-            u = float(np.quantile(self.M, tail["threshold_quantile"]))
-            exc = self.M[self.M > u] - u
+        self.u, self.shape, self.scale = float(u), float(shape), float(scale)
+        self.n_exc = int(n_exc)
+
+    @classmethod
+    def fit(cls, family, key, M, tail, level):
+        c = cls(family, key, M, level)
+        if c.n and genpareto is not None and tail.get("model") == "gpd":
+            u = float(np.quantile(c.M, tail["threshold_quantile"]))
+            exc = c.M[c.M > u] - u
             exc = exc[np.isfinite(exc)]
             if np.isfinite(u) and exc.size >= tail["min_exceedances"]:
                 try:
-                    c, _, s = genpareto.fit(exc, floc=0.0)
-                    if np.isfinite(c) and np.isfinite(s) and s > 0:
-                        self.u, self.shape, self.scale = u, float(c), float(s)
-                        self.n_exc = int(exc.size)
+                    shape, _, scale = genpareto.fit(exc, floc=0.0)
+                    if np.isfinite(shape) and np.isfinite(scale) and scale > 0:
+                        c.u, c.shape, c.scale = u, float(shape), float(scale)
+                        c.n_exc = int(exc.size)
                 except Exception:                          # keep empirical-only
                     pass
+        return c
 
     def p_empirical(self, m):
         """(1 + #{M_b >= m}) / (n + 1) — the standard conservative estimator."""
@@ -128,11 +148,13 @@ class Cell:
 class Calibration:
     """Fitted null model: family -> stratum -> Cell, with a pooling fallback."""
 
-    def __init__(self, cells, families, cond, tail):
+    def __init__(self, cells, families, cond, tail, provenance=None, frozen=False):
         self.cells, self.families, self.cond, self.tail = cells, families, cond, tail
+        self.provenance = dict(provenance or {})
+        self.frozen = bool(frozen)        # True == loaded from a committed artifact
 
     @classmethod
-    def fit(cls, null_df, cfg=None, families=None):
+    def fit(cls, null_df, cfg=None, families=None, provenance=None):
         cond, tail = _cfg_blocks(cfg)
         df = null_df[null_df.get("truth_class", "null") == "null"].copy()
         if "error" in df:
@@ -146,16 +168,20 @@ class Calibration:
             sub = df[df.family == fam]
             if not len(sub):
                 continue
-            cells[(fam, "all")] = Cell(fam, "all", sub.M.to_numpy(), tail, "family")
+            cells[(fam, "all")] = Cell.fit(fam, "all", sub.M.to_numpy(), tail, "family")
             for nb, g1 in sub.groupby("np_bin"):
                 if len(g1) >= cond["min_stratum_n"]:
-                    cells[(fam, (nb,))] = Cell(fam, (nb,), g1.M.to_numpy(), tail,
-                                               "n_proposals")
+                    cells[(fam, (nb,))] = Cell.fit(fam, (nb,), g1.M.to_numpy(), tail,
+                                                   "n_proposals")
                 for sb, g2 in g1.groupby("snr_bin"):
                     if len(g2) >= cond["min_stratum_n"]:
-                        cells[(fam, (nb, sb))] = Cell(fam, (nb, sb), g2.M.to_numpy(),
-                                                      tail, "n_proposals+snr")
-        return cls(cells, families, cond, tail)
+                        cells[(fam, (nb, sb))] = Cell.fit(fam, (nb, sb),
+                                                          g2.M.to_numpy(), tail,
+                                                          "n_proposals+snr")
+        prov = dict(provenance or {})
+        prov.setdefault("n_realizations", int(len(df)))
+        prov.setdefault("families", list(families))
+        return cls(cells, families, cond, tail, prov)
 
     def _cell(self, family, key):
         """Most specific populated cell: (np, snr) -> (np,) -> family."""
@@ -217,6 +243,9 @@ class Calibration:
                 worst, floor = (fam, key, c.n), f
         return float(factor * floor), worst
 
+    def save(self, dirpath, extra=None):
+        return save_calibration(self, dirpath, extra)
+
     def summary(self):
         rows = []
         for (fam, key), c in sorted(self.cells.items(), key=lambda kv: str(kv[0])):
@@ -231,6 +260,94 @@ class Calibration:
                 n_exceedances=c.n_exc,
                 empirical_floor=round(1.0 / (c.n + 1.0), 6) if c.n else np.nan))
         return pd.DataFrame(rows)
+
+
+def sha256_file(path):
+    return hashlib.sha256(open(path, "rb").read()).hexdigest()
+
+
+_LEVEL_TO_KEY = {
+    "family": lambda nb, sb: "all",
+    "n_proposals": lambda nb, sb: (int(nb),),
+    "n_proposals+snr": lambda nb, sb: (int(nb), int(sb)),
+}
+
+
+def save_calibration(calib, dirpath, extra=None):
+    """Write a committed calibration: the sample, the fitted cells, and a manifest.
+
+    The empirical sample is stored alongside the fitted parameters so a loaded
+    calibration is exactly the one that was committed — `load_calibration`
+    reconstructs, it never refits. Returns the manifest dict.
+    """
+    dirpath = os.path.expanduser(dirpath)
+    os.makedirs(dirpath, exist_ok=True)
+
+    cells, values = [], []
+    for cid, ((fam, key), c) in enumerate(sorted(calib.cells.items(),
+                                                 key=lambda kv: (kv[0][0],
+                                                                 str(kv[0][1])))):
+        nb = key[0] if isinstance(key, tuple) else -1
+        sb = key[1] if isinstance(key, tuple) and len(key) > 1 else -1
+        cells.append(dict(cell_id=cid, family=fam, level=c.level,
+                          np_bin=int(nb), snr_bin=int(sb), n=c.n,
+                          gpd_u=c.u, gpd_shape=c.shape, gpd_scale=c.scale,
+                          n_exceedances=c.n_exc,
+                          empirical_floor=(1.0 / (c.n + 1.0)) if c.n else np.nan))
+        values.append(pd.DataFrame(dict(cell_id=cid, M=c.M)))
+
+    cpath = os.path.join(dirpath, CELLS_FILE)
+    vpath = os.path.join(dirpath, VALUES_FILE)
+    pd.DataFrame(cells).to_parquet(cpath, index=False)
+    (pd.concat(values, ignore_index=True) if values
+     else pd.DataFrame(dict(cell_id=[], M=[]))).to_parquet(vpath, index=False)
+
+    a_min, worst = calib.min_resolvable_alpha(
+        calib.cond.get("min_cell_resolution_factor", 4.0))
+    manifest = dict(
+        conditioning=calib.cond, tail=calib.tail, families=list(calib.families),
+        n_cells=len(cells),
+        min_resolvable_alpha=round(float(a_min), 6),
+        min_resolvable_alpha_cell=str(worst),
+        created_utc=datetime.now(timezone.utc).isoformat(),
+        cells_sha256=sha256_file(cpath), values_sha256=sha256_file(vpath))
+    # provenance and caller extras enrich the manifest but must never overwrite the
+    # structural keys `load_calibration` reconstructs from
+    for src in (calib.provenance, extra or {}):
+        manifest.update({k: v for k, v in src.items() if k not in manifest})
+    json.dump(manifest, open(os.path.join(dirpath, MANIFEST_FILE), "w"),
+              indent=2, default=str)
+    return manifest
+
+
+def load_calibration(dirpath, verify=True):
+    """Reconstruct a committed calibration. NEVER refits — the stored GPD
+    parameters are used exactly as written, so a later code change cannot move a
+    frozen threshold. Raises if either artifact no longer hashes to its manifest.
+    """
+    dirpath = os.path.expanduser(dirpath)
+    man = json.load(open(os.path.join(dirpath, MANIFEST_FILE)))
+    cpath = os.path.join(dirpath, CELLS_FILE)
+    vpath = os.path.join(dirpath, VALUES_FILE)
+    if verify:
+        for path, key in ((cpath, "cells_sha256"), (vpath, "values_sha256")):
+            got = sha256_file(path)
+            assert got == man[key], (
+                f"CALIBRATION TAMPERED: {os.path.basename(path)} hashes {got[:16]}… "
+                f"but its manifest committed {man[key][:16]}…. The calibration "
+                f"decides candidacy — a mismatch invalidates the blind round.")
+
+    cdf = pd.read_parquet(cpath)
+    vdf = pd.read_parquet(vpath)
+    by_cell = {cid: g.M.to_numpy() for cid, g in vdf.groupby("cell_id")}
+    cells = {}
+    for r in cdf.itertuples():
+        key = _LEVEL_TO_KEY[r.level](r.np_bin, r.snr_bin)
+        cells[(r.family, key)] = Cell(r.family, key, by_cell.get(r.cell_id, []),
+                                      r.level, r.gpd_u, r.gpd_shape, r.gpd_scale,
+                                      r.n_exceedances)
+    return Calibration(cells, list(man["families"]), man["conditioning"],
+                       man["tail"], provenance=man, frozen=True)
 
 
 def cluster_bootstrap_rate(df, mask_col, cluster_col="source_id", n_boot=2000,
